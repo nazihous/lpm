@@ -8,21 +8,32 @@
 #   GD4..GD6-> VIO3 / VIO4     (GD*_ labels)
 #
 # Usage:
-#   eaip9_lpm <LPAR> <GD1..GD6> <DESTINATION> [DEST_LPAR_ID]
-#   eaip9_srr <LPAR> <GD1..GD6> <DESTINATION> [DEST_LPAR_ID]
+#   eai_lpm -t <active|inactive> -msp <1|2> -n <LPAR> -g <1..6> -d <DESTINATION> [-id DEST_LPAR_ID]
+#   eai_srr -n <LPAR> -g <1..6> -d <DESTINATION>
+#
+# Options (LPM):
+#   -n   LPAR name (mandatory)
+#   -g   Groupe data GD1..GD6 (mandatory)
+#   -d   Destination (mandatory): M9S-A08 | M9S-C8 | HEX-D8 | HEX-C8
+#   -id  Destination LPAR ID (optional; default = source LPAR ID)
+#   -msp 1 = single MSP (default), 2 = redundant MSPs (active LPM only)
+#   -t   active | inactive (optional; if omitted: Running -> active, else inactive)
 #
 # Examples:
-#   eaip9_lpm P10B_TEST12 GD4 HEX-C8
-#   eaip9_lpm P10B_TEST12 GD3 HEX-C8
-#   eaip9_lpm P10B_TEST12 GD4 HEX-C8 12
+#   eai_lpm -n P10B_TEST12 -g GD4 -d HEX-C8
+#   eai_lpm -t active -msp 2 -n P10B_TEST12 -g 3 -d HEX-C8 -id 12
+#   eai_lpm -t inactive -n P10B_TEST12 -g GD4 -d HEX-C8
+#   eai_srr -n P10B_TEST12 -g GD4 -d HEX-C8
 #
-# Destination aliases:
-#   M9S-A08 | M9S-C8 | HEX-D8 | HEX-C8
+# Commands generated:
+#   ACTLPM_SINGL_MSP  : migrlpar --redundantmsps 0 + source/dest MSP
+#   ACTLPM_REDUN_MSPS : migrlpar --redundantmsps 1 + redundant_msps
+#   INACTIVE_LPM      : migrlpar without MSP options
+#   SIMPLE REMO REST  : rrstartlpar restart
 #
-# DESTINATION is mandatory. DEST_LPAR_ID is optional.
-# When DEST_LPAR_ID is omitted, the current source LPAR ID is reused.
-#
-# Only vFC client slots 70/72/80/82 are generated.
+# vFC client slots: 70/72/71 (VIO1) and 80/82/81 (VIO2).
+# Physical ports for 70/72/80/82 come from GD maps; 71/81 omit pfcs
+# when no dedicated GD port is defined (HMC may auto-select).
 
 _eai_normalize_destination () {
     case "$1" in
@@ -61,16 +72,36 @@ _eai_default_destination () {
 
 _eai_set_source_msp () {
     case "$src:$g" in
-        Server-9080-M9S-SN7841A08:[123]) vio_src_msp=P9B_SRV1VIO1 ;;
-        Server-9080-M9S-SN7841A08:[456]) vio_src_msp=P9B_SRV1VIO3 ;;
-        Server-9080-M9S-SN02609C8:[123])  vio_src_msp=P9B_SRV2VIO1 ;;
-        Server-9080-M9S-SN02609C8:[456])  vio_src_msp=P9B_SRV2VIO3 ;;
-        Server-9080-HEX-SN78C65D8:[12])    vio_src_msp=P10B_SRV1VIO1_M ;;
-        Server-9080-HEX-SN78C65D8:3)       vio_src_msp=P10B_SRV1VIO1 ;;
-        Server-9080-HEX-SN78C65D8:[456])   vio_src_msp=P10B_SRV1VIO3 ;;
-        Server-9080-HEX-SN78C65C8:[12])    vio_src_msp=P10B_SRV2VIO1_M ;;
-        Server-9080-HEX-SN78C65C8:3)       vio_src_msp=P10B_SRV2VIO1 ;;
-        Server-9080-HEX-SN78C65C8:[456])   vio_src_msp=P10B_SRV2VIO3 ;;
+        Server-9080-M9S-SN7841A08:[123])
+            vio1_src=P9B_SRV1VIO1; vio2_src=P9B_SRV1VIO2
+            ;;
+        Server-9080-M9S-SN7841A08:[456])
+            vio1_src=P9B_SRV1VIO3; vio2_src=P9B_SRV1VIO4
+            ;;
+        Server-9080-M9S-SN02609C8:[123])
+            vio1_src=P9B_SRV2VIO1; vio2_src=P9B_SRV2VIO2
+            ;;
+        Server-9080-M9S-SN02609C8:[456])
+            vio1_src=P9B_SRV2VIO3; vio2_src=P9B_SRV2VIO4
+            ;;
+        Server-9080-HEX-SN78C65D8:[12])
+            vio1_src=P10B_SRV1VIO1_M; vio2_src=P10B_SRV1VIO2_M
+            ;;
+        Server-9080-HEX-SN78C65D8:3)
+            vio1_src=P10B_SRV1VIO1; vio2_src=P10B_SRV1VIO2
+            ;;
+        Server-9080-HEX-SN78C65D8:[456])
+            vio1_src=P10B_SRV1VIO3; vio2_src=P10B_SRV1VIO4
+            ;;
+        Server-9080-HEX-SN78C65C8:[12])
+            vio1_src=P10B_SRV2VIO1_M; vio2_src=P10B_SRV2VIO2_M
+            ;;
+        Server-9080-HEX-SN78C65C8:3)
+            vio1_src=P10B_SRV2VIO1; vio2_src=P10B_SRV2VIO2
+            ;;
+        Server-9080-HEX-SN78C65C8:[456])
+            vio1_src=P10B_SRV2VIO3; vio2_src=P10B_SRV2VIO4
+            ;;
         *)
             printf 'Combinaison source/GD non supportee: %s / GD%s\n' "$src" "$g" >&2
             return 1
@@ -79,159 +110,153 @@ _eai_set_source_msp () {
 }
 
 _eai_set_destination_mapping () {
+    # Optional third pfcs (slots 71/81) left unset unless a dedicated GD port exists.
+    vio1_fcs3=; vio2_fcs3=
+
     case "$dst:$g" in
         M9S-A08:1)
             sys=Server-9080-M9S-SN7841A08
             vio1_dst=P9B_SRV1VIO1; id1=1; vio1_fcs1=fcs2; vio1_fcs2=fcs9
             vio2_dst=P9B_SRV1VIO2; id2=2; vio2_fcs1=fcs4; vio2_fcs2=fcs13
-            vio_dst_msp=P9B_SRV1VIO1
             ;;
         M9S-A08:2)
             sys=Server-9080-M9S-SN7841A08
             vio1_dst=P9B_SRV1VIO1; id1=1; vio1_fcs1=fcs4; vio1_fcs2=fcs3
             vio2_dst=P9B_SRV1VIO2; id2=2; vio2_fcs1=fcs8; vio2_fcs2=fcs5
-            vio_dst_msp=P9B_SRV1VIO1
             ;;
         M9S-A08:3)
             sys=Server-9080-M9S-SN7841A08
             vio1_dst=P9B_SRV1VIO1; id1=1; vio1_fcs1=fcs8; vio1_fcs2=fcs5
             vio2_dst=P9B_SRV1VIO2; id2=2; vio2_fcs1=fcs12; vio2_fcs2=fcs9
-            vio_dst_msp=P9B_SRV1VIO1
             ;;
         M9S-A08:4)
             sys=Server-9080-M9S-SN7841A08
             vio1_dst=P9B_SRV1VIO3; id1=3; vio1_fcs1=fcs0; vio1_fcs2=fcs9
             vio2_dst=P9B_SRV1VIO4; id2=4; vio2_fcs1=fcs4; vio2_fcs2=fcs13
-            vio_dst_msp=P9B_SRV1VIO3
             ;;
         M9S-A08:5)
             sys=Server-9080-M9S-SN7841A08
             vio1_dst=P9B_SRV1VIO3; id1=3; vio1_fcs1=fcs4; vio1_fcs2=fcs1
             vio2_dst=P9B_SRV1VIO4; id2=4; vio2_fcs1=fcs8; vio2_fcs2=fcs5
-            vio_dst_msp=P9B_SRV1VIO3
             ;;
         M9S-A08:6)
             sys=Server-9080-M9S-SN7841A08
             vio1_dst=P9B_SRV1VIO3; id1=3; vio1_fcs1=fcs8; vio1_fcs2=fcs5
             vio2_dst=P9B_SRV1VIO4; id2=4; vio2_fcs1=fcs12; vio2_fcs2=fcs9
-            vio_dst_msp=P9B_SRV1VIO3
             ;;
 
         M9S-C8:1)
             sys=Server-9080-M9S-SN02609C8
             vio1_dst=P9B_SRV2VIO1; id1=1; vio1_fcs1=fcs0; vio1_fcs2=fcs5
             vio2_dst=P9B_SRV2VIO2; id2=2; vio2_fcs1=fcs2; vio2_fcs2=fcs7
-            vio_dst_msp=P9B_SRV2VIO1
             ;;
         M9S-C8:2)
             sys=Server-9080-M9S-SN02609C8
             vio1_dst=P9B_SRV2VIO1; id1=1; vio1_fcs1=fcs2; vio1_fcs2=fcs1
             vio2_dst=P9B_SRV2VIO2; id2=2; vio2_fcs1=fcs4; vio2_fcs2=fcs3
-            vio_dst_msp=P9B_SRV2VIO1
             ;;
         M9S-C8:3)
             sys=Server-9080-M9S-SN02609C8
             vio1_dst=P9B_SRV2VIO1; id1=1; vio1_fcs1=fcs4; vio1_fcs2=fcs3
             vio2_dst=P9B_SRV2VIO2; id2=2; vio2_fcs1=fcs6; vio2_fcs2=fcs5
-            vio_dst_msp=P9B_SRV2VIO1
             ;;
         M9S-C8:4)
             sys=Server-9080-M9S-SN02609C8
             vio1_dst=P9B_SRV2VIO3; id1=3; vio1_fcs1=fcs0; vio1_fcs2=fcs5
             vio2_dst=P9B_SRV2VIO4; id2=4; vio2_fcs1=fcs2; vio2_fcs2=fcs7
-            vio_dst_msp=P9B_SRV2VIO3
             ;;
         M9S-C8:5)
             sys=Server-9080-M9S-SN02609C8
             vio1_dst=P9B_SRV2VIO3; id1=3; vio1_fcs1=fcs2; vio1_fcs2=fcs1
             vio2_dst=P9B_SRV2VIO4; id2=4; vio2_fcs1=fcs4; vio2_fcs2=fcs3
-            vio_dst_msp=P9B_SRV2VIO3
             ;;
         M9S-C8:6)
             sys=Server-9080-M9S-SN02609C8
             vio1_dst=P9B_SRV2VIO3; id1=3; vio1_fcs1=fcs4; vio1_fcs2=fcs3
             vio2_dst=P9B_SRV2VIO4; id2=4; vio2_fcs1=fcs6; vio2_fcs2=fcs5
-            vio_dst_msp=P9B_SRV2VIO3
             ;;
 
         HEX-D8:1)
             sys=Server-9080-HEX-SN78C65D8
             vio1_dst=P10B_SRV1VIO1_M; id1=5; vio1_fcs1=fcs0; vio1_fcs2=fcs3
             vio2_dst=P10B_SRV1VIO2_M; id2=6; vio2_fcs1=fcs0; vio2_fcs2=fcs3
-            vio_dst_msp=P10B_SRV1VIO1_M
             ;;
         HEX-D8:2)
             sys=Server-9080-HEX-SN78C65D8
             vio1_dst=P10B_SRV1VIO1_M; id1=5; vio1_fcs1=fcs2; vio1_fcs2=fcs1
             vio2_dst=P10B_SRV1VIO2_M; id2=6; vio2_fcs1=fcs2; vio2_fcs2=fcs1
-            vio_dst_msp=P10B_SRV1VIO1_M
             ;;
         HEX-D8:3)
             # From lsnports: GD3_70/72 on VIO1, GD3_80/82 on VIO2
             sys=Server-9080-HEX-SN78C65D8
             vio1_dst=P10B_SRV1VIO1; id1=1; vio1_fcs1=fcs6; vio1_fcs2=fcs1
             vio2_dst=P10B_SRV1VIO2; id2=2; vio2_fcs1=fcs6; vio2_fcs2=fcs1
-            vio_dst_msp=P10B_SRV1VIO1
             ;;
         HEX-D8:4)
             sys=Server-9080-HEX-SN78C65D8
             vio1_dst=P10B_SRV1VIO3; id1=3; vio1_fcs1=fcs4; vio1_fcs2=fcs1
             vio2_dst=P10B_SRV1VIO4; id2=4; vio2_fcs1=fcs4; vio2_fcs2=fcs1
-            vio_dst_msp=P10B_SRV1VIO3
             ;;
         HEX-D8:5)
             sys=Server-9080-HEX-SN78C65D8
             vio1_dst=P10B_SRV1VIO3; id1=3; vio1_fcs1=fcs0; vio1_fcs2=fcs5
             vio2_dst=P10B_SRV1VIO4; id2=4; vio2_fcs1=fcs0; vio2_fcs2=fcs5
-            vio_dst_msp=P10B_SRV1VIO3
             ;;
         HEX-D8:6)
             sys=Server-9080-HEX-SN78C65D8
             vio1_dst=P10B_SRV1VIO3; id1=3; vio1_fcs1=fcs2; vio1_fcs2=fcs7
             vio2_dst=P10B_SRV1VIO4; id2=4; vio2_fcs1=fcs2; vio2_fcs2=fcs7
-            vio_dst_msp=P10B_SRV1VIO3
             ;;
 
         HEX-C8:1)
             sys=Server-9080-HEX-SN78C65C8
             vio1_dst=P10B_SRV2VIO1_M; id1=5; vio1_fcs1=fcs0; vio1_fcs2=fcs3
             vio2_dst=P10B_SRV2VIO2_M; id2=6; vio2_fcs1=fcs0; vio2_fcs2=fcs3
-            vio_dst_msp=P10B_SRV2VIO1_M
             ;;
         HEX-C8:2)
             sys=Server-9080-HEX-SN78C65C8
             vio1_dst=P10B_SRV2VIO1_M; id1=5; vio1_fcs1=fcs2; vio1_fcs2=fcs1
             vio2_dst=P10B_SRV2VIO2_M; id2=6; vio2_fcs1=fcs2; vio2_fcs2=fcs1
-            vio_dst_msp=P10B_SRV2VIO1_M
             ;;
         HEX-C8:3)
             # From lsnports: GD3_70/72 on VIO1 (fcs6/fcs1), GD3_80/82 on VIO2 (fcs10/fcs1)
             sys=Server-9080-HEX-SN78C65C8
             vio1_dst=P10B_SRV2VIO1; id1=1; vio1_fcs1=fcs6; vio1_fcs2=fcs1
             vio2_dst=P10B_SRV2VIO2; id2=2; vio2_fcs1=fcs10; vio2_fcs2=fcs1
-            vio_dst_msp=P10B_SRV2VIO1
             ;;
         HEX-C8:4)
             sys=Server-9080-HEX-SN78C65C8
             vio1_dst=P10B_SRV2VIO3; id1=3; vio1_fcs1=fcs4; vio1_fcs2=fcs1
             vio2_dst=P10B_SRV2VIO4; id2=4; vio2_fcs1=fcs4; vio2_fcs2=fcs1
-            vio_dst_msp=P10B_SRV2VIO3
             ;;
         HEX-C8:5)
             sys=Server-9080-HEX-SN78C65C8
             vio1_dst=P10B_SRV2VIO3; id1=3; vio1_fcs1=fcs0; vio1_fcs2=fcs5
             vio2_dst=P10B_SRV2VIO4; id2=4; vio2_fcs1=fcs0; vio2_fcs2=fcs5
-            vio_dst_msp=P10B_SRV2VIO3
             ;;
         HEX-C8:6)
             sys=Server-9080-HEX-SN78C65C8
             vio1_dst=P10B_SRV2VIO3; id1=3; vio1_fcs1=fcs2; vio1_fcs2=fcs7
             vio2_dst=P10B_SRV2VIO4; id2=4; vio2_fcs1=fcs2; vio2_fcs2=fcs7
-            vio_dst_msp=P10B_SRV2VIO3
             ;;
 
         *)
             printf 'Mapping destination/GD non supporte: %s / GD%s\n' "$dst" "$g" >&2
+            return 1
+            ;;
+    esac
+}
+
+_eai_normalize_gd () {
+    case "$1" in
+        GD1|gd1|1) g=1 ;;
+        GD2|gd2|2) g=2 ;;
+        GD3|gd3|3) g=3 ;;
+        GD4|gd4|4) g=4 ;;
+        GD5|gd5|5) g=5 ;;
+        GD6|gd6|6) g=6 ;;
+        *)
+            printf 'GD invalide: %s. Valeurs autorisees: GD1 a GD6.\n' "$1" >&2
             return 1
             ;;
     esac
@@ -244,22 +269,10 @@ _eai_prepare_mapping () {
     requested_id=$4
 
     if [ -z "$lpar" ] || [ -z "$gd_arg" ] || [ -z "$requested_dst" ]; then
-        printf 'Usage: %s <LPAR> <GD1..GD6> <M9S-A08|M9S-C8|HEX-D8|HEX-C8> [DEST_LPAR_ID]\n' "$FUNCNAME" >&2
         return 1
     fi
 
-    case "$gd_arg" in
-        GD1|gd1|1) g=1 ;;
-        GD2|gd2|2) g=2 ;;
-        GD3|gd3|3) g=3 ;;
-        GD4|gd4|4) g=4 ;;
-        GD5|gd5|5) g=5 ;;
-        GD6|gd6|6) g=6 ;;
-        *)
-            printf 'GD invalide: %s. Valeurs autorisees: GD1 a GD6.\n' "$gd_arg" >&2
-            return 1
-            ;;
-    esac
+    _eai_normalize_gd "$gd_arg" || return 1
 
     if [ -n "$requested_id" ]; then
         case "$requested_id" in
@@ -283,47 +296,193 @@ _eai_prepare_mapping () {
     return 0
 }
 
+# One virtual_fc_mappings element: cslot/vio/id/vslot[/pfcs]
+_eai_vfc_elem () {
+    _cslot=$1; _vio=$2; _vid=$3; _vslot=$4; _pfcs=$5
+    if [ -n "$_pfcs" ]; then
+        printf '%s' "$_cslot/$G$_vio$N/$_vid/$_vslot/$Y$_pfcs$N"
+    else
+        printf '%s' "$_cslot/$G$_vio$N/$_vid/$_vslot"
+    fi
+}
+
+# Order matches runbook: 70,72,71,80,82,81
+_eai_build_vfc_mappings () {
+    cslot_70=70; cslot_72=72; cslot_71=71
+    cslot_80=80; cslot_82=82; cslot_81=81
+    vslot_70=1$M$id$N; vslot_72=2$M$id$N; vslot_71=3$M$id$N
+    vslot_80=1$M$id$N; vslot_82=2$M$id$N; vslot_81=3$M$id$N
+    pfcs70=$vio1_fcs1; pfcs72=$vio1_fcs2; pfcs71=$vio1_fcs3
+    pfcs80=$vio2_fcs1; pfcs82=$vio2_fcs2; pfcs81=$vio2_fcs3
+
+    e70=`_eai_vfc_elem "$cslot_70" "$vio1_dst" "$id1" "$vslot_70" "$pfcs70"`
+    e72=`_eai_vfc_elem "$cslot_72" "$vio1_dst" "$id1" "$vslot_72" "$pfcs72"`
+    e71=`_eai_vfc_elem "$cslot_71" "$vio1_dst" "$id1" "$vslot_71" "$pfcs71"`
+    e80=`_eai_vfc_elem "$cslot_80" "$vio2_dst" "$id2" "$vslot_80" "$pfcs80"`
+    e82=`_eai_vfc_elem "$cslot_82" "$vio2_dst" "$id2" "$vslot_82" "$pfcs82"`
+    e81=`_eai_vfc_elem "$cslot_81" "$vio2_dst" "$id2" "$vslot_81" "$pfcs81"`
+    printf '%s,%s,%s,%s,%s,%s' "$e70" "$e72" "$e71" "$e80" "$e82" "$e81"
+}
+
+_eai_lpar_state () {
+    lssyscfg -r lpar -m "`lparframelookup "$1"`" --filter "lpar_names=$1" -F state
+}
+
+_eai_lpar_id () {
+    lssyscfg -r lpar -m "`lparframelookup "$1"`" --filter "lpar_names=$1" -F lpar_id
+}
+
+_eai_usage_lpm () {
+    printf 'Usage: eai_lpm -n <LPAR> -g <1..6|GD1..GD6> -d <DESTINATION> [-t active|inactive] [-msp 1|2] [-id DEST_LPAR_ID]\n' >&2
+}
+
+_eai_usage_srr () {
+    printf 'Usage: eai_srr -n <LPAR> -g <1..6|GD1..GD6> -d <DESTINATION>\n' >&2
+}
+
 eai_lpm () {
     N=$'\e[0m'; RED=$'\e[1;31m'; Y=$'\e[1;33m'; G=$'\e[1;32m'; MAGENTA=$'\e[1;35m'; C=$'\e[1;36m'; M=$'\e[1;35m'
 
-    lparid () {
-        lssyscfg -r lpar -m "`lparframelookup "$1"`" --filter "lpar_names=$1" -F lpar_id
-    }
+    local lpar_opt= gd_opt= dst_opt= id_opt= msp_opt=1 type_opt=
 
-    fpool () {
-        pool_sys=`lparframelookup "$1"` || return 1
-        default_profile=`lssyscfg -r lpar -m "$pool_sys" --filter "lpar_names=$1" -F default_profile` || return 1
-        lssyscfg -r prof -m "$pool_sys" --filter "profile_names=$default_profile,lpar_names=$1" -F shared_proc_pool_name
-    }
+    # Backward-compatible positional: eai_lpm <LPAR> <GD> <DEST> [ID]
+    if [ "$#" -gt 0 ] && [ "${1#-}" = "$1" ]; then
+        lpar_opt=$1
+        gd_opt=$2
+        dst_opt=$3
+        id_opt=$4
+        type_opt=active
+        msp_opt=1
+    else
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                -n) lpar_opt=$2; shift 2 ;;
+                -g) gd_opt=$2; shift 2 ;;
+                -d) dst_opt=$2; shift 2 ;;
+                -id|--id) id_opt=$2; shift 2 ;;
+                -msp) msp_opt=$2; shift 2 ;;
+                -t) type_opt=$2; shift 2 ;;
+                -h|--help)
+                    _eai_usage_lpm
+                    return 0
+                    ;;
+                *)
+                    printf 'Option inconnue: %s\n' "$1" >&2
+                    _eai_usage_lpm
+                    return 1
+                    ;;
+            esac
+        done
+    fi
 
-    _eai_prepare_mapping "$1" "$2" "$3" "$4" || return 1
+    if [ -z "$lpar_opt" ] || [ -z "$gd_opt" ] || [ -z "$dst_opt" ]; then
+        _eai_usage_lpm
+        return 1
+    fi
+
+    case "$msp_opt" in
+        1|2) ;;
+        *)
+            printf 'Valeur -msp invalide: %s (attendu: 1 ou 2)\n' "$msp_opt" >&2
+            return 1
+            ;;
+    esac
+
+    if [ -n "$type_opt" ]; then
+        case "$type_opt" in
+            active|ACTIVE|a|A) type_opt=active ;;
+            inactive|INACTIVE|i|I) type_opt=inactive ;;
+            *)
+                printf 'Valeur -t invalide: %s (attendu: active ou inactive)\n' "$type_opt" >&2
+                return 1
+                ;;
+        esac
+    fi
+
+    _eai_prepare_mapping "$lpar_opt" "$gd_opt" "$dst_opt" "$id_opt" || {
+        _eai_usage_lpm
+        return 1
+    }
     _eai_set_source_msp || return 1
 
     if [ -n "$requested_id" ]; then
         id=$requested_id
     else
-        id=`lparid "$lpar"` || return 1
+        id=`_eai_lpar_id "$lpar"` || return 1
     fi
 
-    pool=`fpool "$lpar"` || return 1
+    if [ -z "$type_opt" ]; then
+        lpar_state=`_eai_lpar_state "$lpar"` || return 1
+        case "$lpar_state" in
+            Running|running) type_opt=active ;;
+            *) type_opt=inactive ;;
+        esac
+    fi
 
-    printf '%s\n' "<migrlpar> -o m -m $C$src$N -t $G$sys$N -p $lpar -i 'dest_lpar_id=$M$id$N,shared_proc_pool_name=$pool,virtual_fc_mappings=\"70/$G$vio1_dst$N/$id1/1$M$id$N/$Y$vio1_fcs1$N,72/$G$vio1_dst$N/$id1/2$M$id$N/$Y$vio1_fcs2$N,80/$G$vio2_dst$N/$id2/1$M$id$N/$Y$vio2_fcs1$N,82/$G$vio2_dst$N/$id2/2$M$id$N/$Y$vio2_fcs2$N\",source_msp_name=$C$vio_src_msp$N,dest_msp_name=$G$vio_dst_msp$N'"
+    vfc=`_eai_build_vfc_mappings`
+
+    if [ "$type_opt" = "inactive" ]; then
+        # INACTIVE_LPM
+        printf '%s\n' "<migrlpar> -o m -m $C$src$N -t $G$sys$N -p $lpar -i 'dest_lpar_id=$M$id$N,virtual_fc_mappings=\"$vfc\"'"
+        return 0
+    fi
+
+    # Active LPM
+    if [ "$msp_opt" = "2" ]; then
+        # ACTLPM_REDUN_MSPS
+        printf '%s\n' "<migrlpar> -o m -m $C$src$N -t $G$sys$N -p $lpar --redundantmsps 1 -i 'dest_lpar_id=$M$id$N,virtual_fc_mappings=\"$vfc\",redundant_msps=\"1/$C$vio1_src$N///$G$vio1_dst$N//,1/$C$vio2_src$N///$G$vio2_dst$N//\"'"
+    else
+        # ACTLPM_SINGL_MSP
+        printf '%s\n' "<migrlpar> -o m -m $C$src$N -t $G$sys$N -p $lpar --redundantmsps 0 -i 'dest_lpar_id=$M$id$N,virtual_fc_mappings=\"$vfc\",source_msp_name=$C$vio1_src$N,dest_msp_name=$G$vio1_dst$N'"
+    fi
 }
 
-eaip9_srr () {
+eai_srr () {
     N=$'\e[0m'; RED=$'\e[1;31m'; Y=$'\e[1;33m'; G=$'\e[1;32m'; MAGENTA=$'\e[1;35m'; C=$'\e[1;36m'; M=$'\e[1;35m'
 
-    lparid () {
-        lssyscfg -r lpar -m "`lparframelookup "$1"`" --filter "lpar_names=$1" -F lpar_id
-    }
+    local lpar_opt= gd_opt= dst_opt=
 
-    _eai_prepare_mapping "$1" "$2" "$3" "$4" || return 1
-
-    if [ -n "$requested_id" ]; then
-        id=$requested_id
+    # Backward-compatible positional: eai_srr <LPAR> <GD> <DEST>
+    if [ "$#" -gt 0 ] && [ "${1#-}" = "$1" ]; then
+        lpar_opt=$1
+        gd_opt=$2
+        dst_opt=$3
     else
-        id=`lparid "$lpar"` || return 1
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                -n) lpar_opt=$2; shift 2 ;;
+                -g) gd_opt=$2; shift 2 ;;
+                -d) dst_opt=$2; shift 2 ;;
+                -h|--help)
+                    _eai_usage_srr
+                    return 0
+                    ;;
+                *)
+                    printf 'Option inconnue: %s\n' "$1" >&2
+                    _eai_usage_srr
+                    return 1
+                    ;;
+            esac
+        done
     fi
 
-    printf '%s\n' "rrstartlpar -o restart -m $C$src$N -t $G$sys$N -p $lpar -i 'dest_lpar_id=$M$id$N,shared_proc_pool_name=DefaultPool,virtual_fc_mappings=\"70/$G$vio1_dst$N/$id1/1$M$id$N/$Y$vio1_fcs1$N,72/$G$vio1_dst$N/$id1/2$M$id$N/$Y$vio1_fcs2$N,80/$G$vio2_dst$N/$id2/1$M$id$N/$Y$vio2_fcs1$N,82/$G$vio2_dst$N/$id2/2$M$id$N/$Y$vio2_fcs2$N\"'"
+    if [ -z "$lpar_opt" ] || [ -z "$gd_opt" ] || [ -z "$dst_opt" ]; then
+        _eai_usage_srr
+        return 1
+    fi
+
+    _eai_prepare_mapping "$lpar_opt" "$gd_opt" "$dst_opt" "" || {
+        _eai_usage_srr
+        return 1
+    }
+
+    id=`_eai_lpar_id "$lpar"` || return 1
+    vfc=`_eai_build_vfc_mappings`
+
+    # SIMPLE REMO REST
+    printf '%s\n' "<rrstartlpar> -o restart -m $C$src$N -t $G$sys$N -p $lpar -i 'dest_lpar_id=$M$id$N,shared_proc_pool_name=DefaultPool,virtual_fc_mappings=\"$vfc\"'"
 }
+
+# Compatibility aliases
+eaip9_lpm () { eai_lpm "$@"; }
+eaip9_srr () { eai_srr "$@"; }
