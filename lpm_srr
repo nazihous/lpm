@@ -2,12 +2,18 @@
 #   P9  : Server-9080-M9S-SN7841A08 / Server-9080-M9S-SN02609C8
 #   P10 : Server-9080-HEX-SN78C65D8 / Server-9080-HEX-SN78C65C8
 #
+# P10 HEX vFC mappings (GD1..GD6) are derived from lsnports.txt:
+#   GD1/GD2 -> VIO1_M / VIO2_M (GD*_MON_* labels)
+#   GD3     -> VIO1 / VIO2     (GD3_* labels; no MON ports)
+#   GD4..GD6-> VIO3 / VIO4     (GD*_ labels)
+#
 # Usage:
 #   eaip9_lpm <LPAR> <GD1..GD6> <DESTINATION> [DEST_LPAR_ID]
 #   eaip9_srr <LPAR> <GD1..GD6> <DESTINATION> [DEST_LPAR_ID]
 #
 # Examples:
 #   eaip9_lpm P10B_TEST12 GD4 HEX-C8
+#   eaip9_lpm P10B_TEST12 GD3 HEX-C8
 #   eaip9_lpm P10B_TEST12 GD4 HEX-C8 12
 #
 # Destination aliases:
@@ -60,13 +66,11 @@ _eai_set_source_msp () {
         Server-9080-M9S-SN02609C8:[123])  vio_src_msp=P9B_SRV2VIO1 ;;
         Server-9080-M9S-SN02609C8:[456])  vio_src_msp=P9B_SRV2VIO3 ;;
         Server-9080-HEX-SN78C65D8:[12])    vio_src_msp=P10B_SRV1VIO1_M ;;
+        Server-9080-HEX-SN78C65D8:3)       vio_src_msp=P10B_SRV1VIO1 ;;
         Server-9080-HEX-SN78C65D8:[456])   vio_src_msp=P10B_SRV1VIO3 ;;
         Server-9080-HEX-SN78C65C8:[12])    vio_src_msp=P10B_SRV2VIO1_M ;;
+        Server-9080-HEX-SN78C65C8:3)       vio_src_msp=P10B_SRV2VIO1 ;;
         Server-9080-HEX-SN78C65C8:[456])   vio_src_msp=P10B_SRV2VIO3 ;;
-        Server-9080-HEX-SN78C65D8:3|Server-9080-HEX-SN78C65C8:3)
-            printf 'GD3 non disponible sur les Power10 HEX dans les mappings fournis.\n' >&2
-            return 1
-            ;;
         *)
             printf 'Combinaison source/GD non supportee: %s / GD%s\n' "$src" "$g" >&2
             return 1
@@ -162,6 +166,13 @@ _eai_set_destination_mapping () {
             vio2_dst=P10B_SRV1VIO2_M; id2=6; vio2_fcs1=fcs2; vio2_fcs2=fcs1
             vio_dst_msp=P10B_SRV1VIO1_M
             ;;
+        HEX-D8:3)
+            # From lsnports: GD3_70/72 on VIO1, GD3_80/82 on VIO2
+            sys=Server-9080-HEX-SN78C65D8
+            vio1_dst=P10B_SRV1VIO1; id1=1; vio1_fcs1=fcs6; vio1_fcs2=fcs1
+            vio2_dst=P10B_SRV1VIO2; id2=2; vio2_fcs1=fcs6; vio2_fcs2=fcs1
+            vio_dst_msp=P10B_SRV1VIO1
+            ;;
         HEX-D8:4)
             sys=Server-9080-HEX-SN78C65D8
             vio1_dst=P10B_SRV1VIO3; id1=3; vio1_fcs1=fcs4; vio1_fcs2=fcs1
@@ -193,6 +204,13 @@ _eai_set_destination_mapping () {
             vio2_dst=P10B_SRV2VIO2_M; id2=6; vio2_fcs1=fcs2; vio2_fcs2=fcs1
             vio_dst_msp=P10B_SRV2VIO1_M
             ;;
+        HEX-C8:3)
+            # From lsnports: GD3_70/72 on VIO1 (fcs6/fcs1), GD3_80/82 on VIO2 (fcs10/fcs1)
+            sys=Server-9080-HEX-SN78C65C8
+            vio1_dst=P10B_SRV2VIO1; id1=1; vio1_fcs1=fcs6; vio1_fcs2=fcs1
+            vio2_dst=P10B_SRV2VIO2; id2=2; vio2_fcs1=fcs10; vio2_fcs2=fcs1
+            vio_dst_msp=P10B_SRV2VIO1
+            ;;
         HEX-C8:4)
             sys=Server-9080-HEX-SN78C65C8
             vio1_dst=P10B_SRV2VIO3; id1=3; vio1_fcs1=fcs4; vio1_fcs2=fcs1
@@ -212,10 +230,6 @@ _eai_set_destination_mapping () {
             vio_dst_msp=P10B_SRV2VIO3
             ;;
 
-        HEX-D8:3|HEX-C8:3)
-            printf 'GD3 non disponible sur les Power10 HEX dans les mappings fournis.\n' >&2
-            return 1
-            ;;
         *)
             printf 'Mapping destination/GD non supporte: %s / GD%s\n' "$dst" "$g" >&2
             return 1
