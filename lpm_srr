@@ -1,0 +1,315 @@
+# Supports:
+#   P9  : Server-9080-M9S-SN7841A08 / Server-9080-M9S-SN02609C8
+#   P10 : Server-9080-HEX-SN78C65D8 / Server-9080-HEX-SN78C65C8
+#
+# Usage:
+#   eaip9_lpm <LPAR> <GD1..GD6> <DESTINATION> [DEST_LPAR_ID]
+#   eaip9_srr <LPAR> <GD1..GD6> <DESTINATION> [DEST_LPAR_ID]
+#
+# Examples:
+#   eaip9_lpm P10B_TEST12 GD4 HEX-C8
+#   eaip9_lpm P10B_TEST12 GD4 HEX-C8 12
+#
+# Destination aliases:
+#   M9S-A08 | M9S-C8 | HEX-D8 | HEX-C8
+#
+# DESTINATION is mandatory. DEST_LPAR_ID is optional.
+# When DEST_LPAR_ID is omitted, the current source LPAR ID is reused.
+#
+# Only vFC client slots 70/72/80/82 are generated.
+
+_eai_normalize_destination () {
+    case "$1" in
+        M9S-A08|A08|Server-9080-M9S-SN7841A08)
+            dst=M9S-A08
+            ;;
+        M9S-C8|Server-9080-M9S-SN02609C8)
+            dst=M9S-C8
+            ;;
+        HEX-D8|D8|78C65D8|Server-9080-HEX-SN78C65D8)
+            dst=HEX-D8
+            ;;
+        HEX-C8|78C65C8|Server-9080-HEX-SN78C65C8)
+            dst=HEX-C8
+            ;;
+        *)
+            printf 'Destination inconnue: %s\n' "$1" >&2
+            printf 'Destinations valides: M9S-A08, M9S-C8, HEX-D8, HEX-C8\n' >&2
+            return 1
+            ;;
+    esac
+}
+
+_eai_default_destination () {
+    case "$src" in
+        Server-9080-M9S-SN7841A08) dst=M9S-C8 ;;
+        Server-9080-M9S-SN02609C8) dst=M9S-A08 ;;
+        Server-9080-HEX-SN78C65D8) dst=HEX-C8 ;;
+        Server-9080-HEX-SN78C65C8) dst=HEX-D8 ;;
+        *)
+            printf 'Frame source non supportee: %s\n' "$src" >&2
+            return 1
+            ;;
+    esac
+}
+
+_eai_set_source_msp () {
+    case "$src:$g" in
+        Server-9080-M9S-SN7841A08:[123]) vio_src_msp=P9B_SRV1VIO1 ;;
+        Server-9080-M9S-SN7841A08:[456]) vio_src_msp=P9B_SRV1VIO3 ;;
+        Server-9080-M9S-SN02609C8:[123])  vio_src_msp=P9B_SRV2VIO1 ;;
+        Server-9080-M9S-SN02609C8:[456])  vio_src_msp=P9B_SRV2VIO3 ;;
+        Server-9080-HEX-SN78C65D8:[12])    vio_src_msp=P10B_SRV1VIO1_M ;;
+        Server-9080-HEX-SN78C65D8:[456])   vio_src_msp=P10B_SRV1VIO3 ;;
+        Server-9080-HEX-SN78C65C8:[12])    vio_src_msp=P10B_SRV2VIO1_M ;;
+        Server-9080-HEX-SN78C65C8:[456])   vio_src_msp=P10B_SRV2VIO3 ;;
+        Server-9080-HEX-SN78C65D8:3|Server-9080-HEX-SN78C65C8:3)
+            printf 'GD3 non disponible sur les Power10 HEX dans les mappings fournis.\n' >&2
+            return 1
+            ;;
+        *)
+            printf 'Combinaison source/GD non supportee: %s / GD%s\n' "$src" "$g" >&2
+            return 1
+            ;;
+    esac
+}
+
+_eai_set_destination_mapping () {
+    case "$dst:$g" in
+        M9S-A08:1)
+            sys=Server-9080-M9S-SN7841A08
+            vio1_dst=P9B_SRV1VIO1; id1=1; vio1_fcs1=fcs2; vio1_fcs2=fcs9
+            vio2_dst=P9B_SRV1VIO2; id2=2; vio2_fcs1=fcs4; vio2_fcs2=fcs13
+            vio_dst_msp=P9B_SRV1VIO1
+            ;;
+        M9S-A08:2)
+            sys=Server-9080-M9S-SN7841A08
+            vio1_dst=P9B_SRV1VIO1; id1=1; vio1_fcs1=fcs4; vio1_fcs2=fcs3
+            vio2_dst=P9B_SRV1VIO2; id2=2; vio2_fcs1=fcs8; vio2_fcs2=fcs5
+            vio_dst_msp=P9B_SRV1VIO1
+            ;;
+        M9S-A08:3)
+            sys=Server-9080-M9S-SN7841A08
+            vio1_dst=P9B_SRV1VIO1; id1=1; vio1_fcs1=fcs8; vio1_fcs2=fcs5
+            vio2_dst=P9B_SRV1VIO2; id2=2; vio2_fcs1=fcs12; vio2_fcs2=fcs9
+            vio_dst_msp=P9B_SRV1VIO1
+            ;;
+        M9S-A08:4)
+            sys=Server-9080-M9S-SN7841A08
+            vio1_dst=P9B_SRV1VIO3; id1=3; vio1_fcs1=fcs0; vio1_fcs2=fcs9
+            vio2_dst=P9B_SRV1VIO4; id2=4; vio2_fcs1=fcs4; vio2_fcs2=fcs13
+            vio_dst_msp=P9B_SRV1VIO3
+            ;;
+        M9S-A08:5)
+            sys=Server-9080-M9S-SN7841A08
+            vio1_dst=P9B_SRV1VIO3; id1=3; vio1_fcs1=fcs4; vio1_fcs2=fcs1
+            vio2_dst=P9B_SRV1VIO4; id2=4; vio2_fcs1=fcs8; vio2_fcs2=fcs5
+            vio_dst_msp=P9B_SRV1VIO3
+            ;;
+        M9S-A08:6)
+            sys=Server-9080-M9S-SN7841A08
+            vio1_dst=P9B_SRV1VIO3; id1=3; vio1_fcs1=fcs8; vio1_fcs2=fcs5
+            vio2_dst=P9B_SRV1VIO4; id2=4; vio2_fcs1=fcs12; vio2_fcs2=fcs9
+            vio_dst_msp=P9B_SRV1VIO3
+            ;;
+
+        M9S-C8:1)
+            sys=Server-9080-M9S-SN02609C8
+            vio1_dst=P9B_SRV2VIO1; id1=1; vio1_fcs1=fcs0; vio1_fcs2=fcs5
+            vio2_dst=P9B_SRV2VIO2; id2=2; vio2_fcs1=fcs2; vio2_fcs2=fcs7
+            vio_dst_msp=P9B_SRV2VIO1
+            ;;
+        M9S-C8:2)
+            sys=Server-9080-M9S-SN02609C8
+            vio1_dst=P9B_SRV2VIO1; id1=1; vio1_fcs1=fcs2; vio1_fcs2=fcs1
+            vio2_dst=P9B_SRV2VIO2; id2=2; vio2_fcs1=fcs4; vio2_fcs2=fcs3
+            vio_dst_msp=P9B_SRV2VIO1
+            ;;
+        M9S-C8:3)
+            sys=Server-9080-M9S-SN02609C8
+            vio1_dst=P9B_SRV2VIO1; id1=1; vio1_fcs1=fcs4; vio1_fcs2=fcs3
+            vio2_dst=P9B_SRV2VIO2; id2=2; vio2_fcs1=fcs6; vio2_fcs2=fcs5
+            vio_dst_msp=P9B_SRV2VIO1
+            ;;
+        M9S-C8:4)
+            sys=Server-9080-M9S-SN02609C8
+            vio1_dst=P9B_SRV2VIO3; id1=3; vio1_fcs1=fcs0; vio1_fcs2=fcs5
+            vio2_dst=P9B_SRV2VIO4; id2=4; vio2_fcs1=fcs2; vio2_fcs2=fcs7
+            vio_dst_msp=P9B_SRV2VIO3
+            ;;
+        M9S-C8:5)
+            sys=Server-9080-M9S-SN02609C8
+            vio1_dst=P9B_SRV2VIO3; id1=3; vio1_fcs1=fcs2; vio1_fcs2=fcs1
+            vio2_dst=P9B_SRV2VIO4; id2=4; vio2_fcs1=fcs4; vio2_fcs2=fcs3
+            vio_dst_msp=P9B_SRV2VIO3
+            ;;
+        M9S-C8:6)
+            sys=Server-9080-M9S-SN02609C8
+            vio1_dst=P9B_SRV2VIO3; id1=3; vio1_fcs1=fcs4; vio1_fcs2=fcs3
+            vio2_dst=P9B_SRV2VIO4; id2=4; vio2_fcs1=fcs6; vio2_fcs2=fcs5
+            vio_dst_msp=P9B_SRV2VIO3
+            ;;
+
+        HEX-D8:1)
+            sys=Server-9080-HEX-SN78C65D8
+            vio1_dst=P10B_SRV1VIO1_M; id1=5; vio1_fcs1=fcs0; vio1_fcs2=fcs3
+            vio2_dst=P10B_SRV1VIO2_M; id2=6; vio2_fcs1=fcs0; vio2_fcs2=fcs3
+            vio_dst_msp=P10B_SRV1VIO1_M
+            ;;
+        HEX-D8:2)
+            sys=Server-9080-HEX-SN78C65D8
+            vio1_dst=P10B_SRV1VIO1_M; id1=5; vio1_fcs1=fcs2; vio1_fcs2=fcs1
+            vio2_dst=P10B_SRV1VIO2_M; id2=6; vio2_fcs1=fcs2; vio2_fcs2=fcs1
+            vio_dst_msp=P10B_SRV1VIO1_M
+            ;;
+        HEX-D8:4)
+            sys=Server-9080-HEX-SN78C65D8
+            vio1_dst=P10B_SRV1VIO3; id1=3; vio1_fcs1=fcs4; vio1_fcs2=fcs1
+            vio2_dst=P10B_SRV1VIO4; id2=4; vio2_fcs1=fcs4; vio2_fcs2=fcs1
+            vio_dst_msp=P10B_SRV1VIO3
+            ;;
+        HEX-D8:5)
+            sys=Server-9080-HEX-SN78C65D8
+            vio1_dst=P10B_SRV1VIO3; id1=3; vio1_fcs1=fcs0; vio1_fcs2=fcs5
+            vio2_dst=P10B_SRV1VIO4; id2=4; vio2_fcs1=fcs0; vio2_fcs2=fcs5
+            vio_dst_msp=P10B_SRV1VIO3
+            ;;
+        HEX-D8:6)
+            sys=Server-9080-HEX-SN78C65D8
+            vio1_dst=P10B_SRV1VIO3; id1=3; vio1_fcs1=fcs2; vio1_fcs2=fcs7
+            vio2_dst=P10B_SRV1VIO4; id2=4; vio2_fcs1=fcs2; vio2_fcs2=fcs7
+            vio_dst_msp=P10B_SRV1VIO3
+            ;;
+
+        HEX-C8:1)
+            sys=Server-9080-HEX-SN78C65C8
+            vio1_dst=P10B_SRV2VIO1_M; id1=5; vio1_fcs1=fcs0; vio1_fcs2=fcs3
+            vio2_dst=P10B_SRV2VIO2_M; id2=6; vio2_fcs1=fcs0; vio2_fcs2=fcs3
+            vio_dst_msp=P10B_SRV2VIO1_M
+            ;;
+        HEX-C8:2)
+            sys=Server-9080-HEX-SN78C65C8
+            vio1_dst=P10B_SRV2VIO1_M; id1=5; vio1_fcs1=fcs2; vio1_fcs2=fcs1
+            vio2_dst=P10B_SRV2VIO2_M; id2=6; vio2_fcs1=fcs2; vio2_fcs2=fcs1
+            vio_dst_msp=P10B_SRV2VIO1_M
+            ;;
+        HEX-C8:4)
+            sys=Server-9080-HEX-SN78C65C8
+            vio1_dst=P10B_SRV2VIO3; id1=3; vio1_fcs1=fcs4; vio1_fcs2=fcs1
+            vio2_dst=P10B_SRV2VIO4; id2=4; vio2_fcs1=fcs4; vio2_fcs2=fcs1
+            vio_dst_msp=P10B_SRV2VIO3
+            ;;
+        HEX-C8:5)
+            sys=Server-9080-HEX-SN78C65C8
+            vio1_dst=P10B_SRV2VIO3; id1=3; vio1_fcs1=fcs0; vio1_fcs2=fcs5
+            vio2_dst=P10B_SRV2VIO4; id2=4; vio2_fcs1=fcs0; vio2_fcs2=fcs5
+            vio_dst_msp=P10B_SRV2VIO3
+            ;;
+        HEX-C8:6)
+            sys=Server-9080-HEX-SN78C65C8
+            vio1_dst=P10B_SRV2VIO3; id1=3; vio1_fcs1=fcs2; vio1_fcs2=fcs7
+            vio2_dst=P10B_SRV2VIO4; id2=4; vio2_fcs1=fcs2; vio2_fcs2=fcs7
+            vio_dst_msp=P10B_SRV2VIO3
+            ;;
+
+        HEX-D8:3|HEX-C8:3)
+            printf 'GD3 non disponible sur les Power10 HEX dans les mappings fournis.\n' >&2
+            return 1
+            ;;
+        *)
+            printf 'Mapping destination/GD non supporte: %s / GD%s\n' "$dst" "$g" >&2
+            return 1
+            ;;
+    esac
+}
+
+_eai_prepare_mapping () {
+    lpar=$1
+    gd_arg=$2
+    requested_dst=$3
+    requested_id=$4
+
+    if [ -z "$lpar" ] || [ -z "$gd_arg" ] || [ -z "$requested_dst" ]; then
+        printf 'Usage: %s <LPAR> <GD1..GD6> <M9S-A08|M9S-C8|HEX-D8|HEX-C8> [DEST_LPAR_ID]\n' "$FUNCNAME" >&2
+        return 1
+    fi
+
+    case "$gd_arg" in
+        GD1|gd1|1) g=1 ;;
+        GD2|gd2|2) g=2 ;;
+        GD3|gd3|3) g=3 ;;
+        GD4|gd4|4) g=4 ;;
+        GD5|gd5|5) g=5 ;;
+        GD6|gd6|6) g=6 ;;
+        *)
+            printf 'GD invalide: %s. Valeurs autorisees: GD1 a GD6.\n' "$gd_arg" >&2
+            return 1
+            ;;
+    esac
+
+    if [ -n "$requested_id" ]; then
+        case "$requested_id" in
+            *[!0-9]*)
+                printf 'ID de destination invalide: %s. Une valeur numerique est attendue.\n' "$requested_id" >&2
+                return 1
+                ;;
+        esac
+    fi
+
+    src=`lparframelookup "$lpar"` || return 1
+
+    _eai_normalize_destination "$requested_dst" || return 1
+    _eai_set_destination_mapping || return 1
+
+    if [ "$src" = "$sys" ]; then
+        printf 'La source et la destination sont identiques: %s\n' "$src" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+eai_lpm () {
+    N=$'\e[0m'; RED=$'\e[1;31m'; Y=$'\e[1;33m'; G=$'\e[1;32m'; MAGENTA=$'\e[1;35m'; C=$'\e[1;36m'; M=$'\e[1;35m'
+
+    lparid () {
+        lssyscfg -r lpar -m "`lparframelookup "$1"`" --filter "lpar_names=$1" -F lpar_id
+    }
+
+    fpool () {
+        pool_sys=`lparframelookup "$1"` || return 1
+        default_profile=`lssyscfg -r lpar -m "$pool_sys" --filter "lpar_names=$1" -F default_profile` || return 1
+        lssyscfg -r prof -m "$pool_sys" --filter "profile_names=$default_profile,lpar_names=$1" -F shared_proc_pool_name
+    }
+
+    _eai_prepare_mapping "$1" "$2" "$3" "$4" || return 1
+    _eai_set_source_msp || return 1
+
+    if [ -n "$requested_id" ]; then
+        id=$requested_id
+    else
+        id=`lparid "$lpar"` || return 1
+    fi
+
+    pool=`fpool "$lpar"` || return 1
+
+    printf '%s\n' "<migrlpar> -o m -m $C$src$N -t $G$sys$N -p $lpar -i 'dest_lpar_id=$M$id$N,shared_proc_pool_name=$pool,virtual_fc_mappings=\"70/$G$vio1_dst$N/$id1/1$M$id$N/$Y$vio1_fcs1$N,72/$G$vio1_dst$N/$id1/2$M$id$N/$Y$vio1_fcs2$N,80/$G$vio2_dst$N/$id2/1$M$id$N/$Y$vio2_fcs1$N,82/$G$vio2_dst$N/$id2/2$M$id$N/$Y$vio2_fcs2$N\",source_msp_name=$C$vio_src_msp$N,dest_msp_name=$G$vio_dst_msp$N'"
+}
+
+eaip9_srr () {
+    N=$'\e[0m'; RED=$'\e[1;31m'; Y=$'\e[1;33m'; G=$'\e[1;32m'; MAGENTA=$'\e[1;35m'; C=$'\e[1;36m'; M=$'\e[1;35m'
+
+    lparid () {
+        lssyscfg -r lpar -m "`lparframelookup "$1"`" --filter "lpar_names=$1" -F lpar_id
+    }
+
+    _eai_prepare_mapping "$1" "$2" "$3" "$4" || return 1
+
+    if [ -n "$requested_id" ]; then
+        id=$requested_id
+    else
+        id=`lparid "$lpar"` || return 1
+    fi
+
+    printf '%s\n' "rrstartlpar -o restart -m $C$src$N -t $G$sys$N -p $lpar -i 'dest_lpar_id=$M$id$N,shared_proc_pool_name=DefaultPool,virtual_fc_mappings=\"70/$G$vio1_dst$N/$id1/1$M$id$N/$Y$vio1_fcs1$N,72/$G$vio1_dst$N/$id1/2$M$id$N/$Y$vio1_fcs2$N,80/$G$vio2_dst$N/$id2/1$M$id$N/$Y$vio2_fcs1$N,82/$G$vio2_dst$N/$id2/2$M$id$N/$Y$vio2_fcs2$N\"'"
+}
