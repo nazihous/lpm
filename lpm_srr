@@ -2,18 +2,20 @@
 #   P9  : Server-9080-M9S-SN7841A08 / Server-9080-M9S-SN02609C8
 #   P10 : Server-9080-HEX-SN78C65D8 / Server-9080-HEX-SN78C65C8
 #
-# P10 HEX vFC mappings (GD1..GD6) are derived from lsnports.txt:
-#   GD1/GD2 -> VIO1_M / VIO2_M (GD*_MON_* labels)
-#   GD3     -> VIO1 / VIO2     (GD3_* labels; no MON ports)
-#   GD4..GD6-> VIO3 / VIO4     (GD*_ labels)
+# P10 HEX vFC mappings are derived from lsnports.txt GD column:
+#   GD1..GD3     -> VIO1 / VIO2       (regular labels GD*_70/72/80/82)
+#   GD1_MON/GD2_MON -> VIO1_M / VIO2_M (GD*_MON_* labels)
+#   GD4..GD6     -> VIO3 / VIO4
+#   GD4_MON/GD5_MON -> VIO3_M / VIO4_M
+#   (no GD3_MON / GD6_MON in lsnports)
 #
 # Usage:
-#   eai_lpm -t <active|inactive> -msp <1|2> -n <LPAR> -g <1..6> -d <DESTINATION> [-id DEST_LPAR_ID]
-#   eai_srr -n <LPAR> -g <1..6> -d <DESTINATION>
+#   eai_lpm -t <active|inactive> -msp <1|2> -n <LPAR> -g <GD> -d <DESTINATION> [-id DEST_LPAR_ID]
+#   eai_srr -n <LPAR> -g <GD> -d <DESTINATION>
 #
 # Options (LPM):
 #   -n   LPAR name (mandatory)
-#   -g   Groupe data GD1..GD6 (mandatory)
+#   -g   Groupe data: GD1..GD6 or GD1_MON|GD2_MON|GD4_MON|GD5_MON (HEX only for *_MON)
 #   -d   Destination (mandatory): M9S-A08 | M9S-C8 | HEX-D8 | HEX-C8
 #   -id  Destination LPAR ID (optional; default = source LPAR ID)
 #   -msp 1 = single MSP (default), 2 = redundant MSPs (active LPM only)
@@ -21,7 +23,7 @@
 #
 # Examples:
 #   eai_lpm -n P10B_TEST12 -g GD4 -d HEX-C8
-#   eai_lpm -t active -msp 2 -n P10B_TEST12 -g 3 -d HEX-C8 -id 12
+#   eai_lpm -t active -msp 2 -n P10B_TEST12 -g GD1_MON -d HEX-C8 -id 12
 #   eai_lpm -t inactive -n P10B_TEST12 -g GD4 -d HEX-C8
 #   eai_srr -n P10B_TEST12 -g GD4 -d HEX-C8
 #
@@ -70,35 +72,41 @@ _eai_default_destination () {
 
 _eai_set_source_msp () {
     case "$src:$g" in
-        Server-9080-M9S-SN7841A08:[123])
+        Server-9080-M9S-SN7841A08:1|Server-9080-M9S-SN7841A08:2|Server-9080-M9S-SN7841A08:3)
             vio1_src=P9B_SRV1VIO1; vio2_src=P9B_SRV1VIO2
             ;;
-        Server-9080-M9S-SN7841A08:[456])
+        Server-9080-M9S-SN7841A08:4|Server-9080-M9S-SN7841A08:5|Server-9080-M9S-SN7841A08:6)
             vio1_src=P9B_SRV1VIO3; vio2_src=P9B_SRV1VIO4
             ;;
-        Server-9080-M9S-SN02609C8:[123])
+        Server-9080-M9S-SN02609C8:1|Server-9080-M9S-SN02609C8:2|Server-9080-M9S-SN02609C8:3)
             vio1_src=P9B_SRV2VIO1; vio2_src=P9B_SRV2VIO2
             ;;
-        Server-9080-M9S-SN02609C8:[456])
+        Server-9080-M9S-SN02609C8:4|Server-9080-M9S-SN02609C8:5|Server-9080-M9S-SN02609C8:6)
             vio1_src=P9B_SRV2VIO3; vio2_src=P9B_SRV2VIO4
             ;;
-        Server-9080-HEX-SN78C65D8:[12])
-            vio1_src=P10B_SRV1VIO1_M; vio2_src=P10B_SRV1VIO2_M
-            ;;
-        Server-9080-HEX-SN78C65D8:3)
+        Server-9080-HEX-SN78C65D8:1|Server-9080-HEX-SN78C65D8:2|Server-9080-HEX-SN78C65D8:3)
             vio1_src=P10B_SRV1VIO1; vio2_src=P10B_SRV1VIO2
             ;;
-        Server-9080-HEX-SN78C65D8:[456])
+        Server-9080-HEX-SN78C65D8:1M|Server-9080-HEX-SN78C65D8:2M)
+            vio1_src=P10B_SRV1VIO1_M; vio2_src=P10B_SRV1VIO2_M
+            ;;
+        Server-9080-HEX-SN78C65D8:4|Server-9080-HEX-SN78C65D8:5|Server-9080-HEX-SN78C65D8:6)
             vio1_src=P10B_SRV1VIO3; vio2_src=P10B_SRV1VIO4
             ;;
-        Server-9080-HEX-SN78C65C8:[12])
-            vio1_src=P10B_SRV2VIO1_M; vio2_src=P10B_SRV2VIO2_M
+        Server-9080-HEX-SN78C65D8:4M|Server-9080-HEX-SN78C65D8:5M)
+            vio1_src=P10B_SRV1VIO3_M; vio2_src=P10B_SRV1VIO4_M
             ;;
-        Server-9080-HEX-SN78C65C8:3)
+        Server-9080-HEX-SN78C65C8:1|Server-9080-HEX-SN78C65C8:2|Server-9080-HEX-SN78C65C8:3)
             vio1_src=P10B_SRV2VIO1; vio2_src=P10B_SRV2VIO2
             ;;
-        Server-9080-HEX-SN78C65C8:[456])
+        Server-9080-HEX-SN78C65C8:1M|Server-9080-HEX-SN78C65C8:2M)
+            vio1_src=P10B_SRV2VIO1_M; vio2_src=P10B_SRV2VIO2_M
+            ;;
+        Server-9080-HEX-SN78C65C8:4|Server-9080-HEX-SN78C65C8:5|Server-9080-HEX-SN78C65C8:6)
             vio1_src=P10B_SRV2VIO3; vio2_src=P10B_SRV2VIO4
+            ;;
+        Server-9080-HEX-SN78C65C8:4M|Server-9080-HEX-SN78C65C8:5M)
+            vio1_src=P10B_SRV2VIO3_M; vio2_src=P10B_SRV2VIO4_M
             ;;
         *)
             printf 'Combinaison source/GD non supportee: %s / GD%s\n' "$src" "$g" >&2
@@ -172,64 +180,122 @@ _eai_set_destination_mapping () {
             ;;
 
         HEX-D8:1)
+            # lsnports GD1: VIO1/VIO2 regular
+            sys=Server-9080-HEX-SN78C65D8
+            vio1_dst=P10B_SRV1VIO1; id1=1; vio1_fcs1=fcs0; vio1_fcs2=fcs5
+            vio2_dst=P10B_SRV1VIO2; id2=2; vio2_fcs1=fcs0; vio2_fcs2=fcs5
+            ;;
+        HEX-D8:1M)
+            # lsnports GD1_MON: VIO1_M/VIO2_M
             sys=Server-9080-HEX-SN78C65D8
             vio1_dst=P10B_SRV1VIO1_M; id1=5; vio1_fcs1=fcs0; vio1_fcs2=fcs3
             vio2_dst=P10B_SRV1VIO2_M; id2=6; vio2_fcs1=fcs0; vio2_fcs2=fcs3
             ;;
         HEX-D8:2)
+            # lsnports GD2: VIO1/VIO2 regular
+            sys=Server-9080-HEX-SN78C65D8
+            vio1_dst=P10B_SRV1VIO1; id1=1; vio1_fcs1=fcs4; vio1_fcs2=fcs7
+            vio2_dst=P10B_SRV1VIO2; id2=2; vio2_fcs1=fcs4; vio2_fcs2=fcs7
+            ;;
+        HEX-D8:2M)
+            # lsnports GD2_MON: VIO1_M/VIO2_M
             sys=Server-9080-HEX-SN78C65D8
             vio1_dst=P10B_SRV1VIO1_M; id1=5; vio1_fcs1=fcs2; vio1_fcs2=fcs1
             vio2_dst=P10B_SRV1VIO2_M; id2=6; vio2_fcs1=fcs2; vio2_fcs2=fcs1
             ;;
         HEX-D8:3)
-            # From lsnports: GD3_70/72 on VIO1, GD3_80/82 on VIO2
+            # lsnports GD3: VIO1/VIO2
             sys=Server-9080-HEX-SN78C65D8
             vio1_dst=P10B_SRV1VIO1; id1=1; vio1_fcs1=fcs6; vio1_fcs2=fcs1
             vio2_dst=P10B_SRV1VIO2; id2=2; vio2_fcs1=fcs6; vio2_fcs2=fcs1
             ;;
         HEX-D8:4)
+            # lsnports GD4: VIO3/VIO4
             sys=Server-9080-HEX-SN78C65D8
             vio1_dst=P10B_SRV1VIO3; id1=3; vio1_fcs1=fcs4; vio1_fcs2=fcs1
             vio2_dst=P10B_SRV1VIO4; id2=4; vio2_fcs1=fcs4; vio2_fcs2=fcs1
             ;;
+        HEX-D8:4M)
+            # lsnports GD4_MON: VIO3_M/VIO4_M
+            sys=Server-9080-HEX-SN78C65D8
+            vio1_dst=P10B_SRV1VIO3_M; id1=7; vio1_fcs1=fcs0; vio1_fcs2=fcs5
+            vio2_dst=P10B_SRV1VIO4_M; id2=8; vio2_fcs1=fcs0; vio2_fcs2=fcs5
+            ;;
         HEX-D8:5)
+            # lsnports GD5: VIO3/VIO4
             sys=Server-9080-HEX-SN78C65D8
             vio1_dst=P10B_SRV1VIO3; id1=3; vio1_fcs1=fcs0; vio1_fcs2=fcs5
             vio2_dst=P10B_SRV1VIO4; id2=4; vio2_fcs1=fcs0; vio2_fcs2=fcs5
             ;;
+        HEX-D8:5M)
+            # lsnports GD5_MON: VIO3_M/VIO4_M
+            sys=Server-9080-HEX-SN78C65D8
+            vio1_dst=P10B_SRV1VIO3_M; id1=7; vio1_fcs1=fcs4; vio1_fcs2=fcs1
+            vio2_dst=P10B_SRV1VIO4_M; id2=8; vio2_fcs1=fcs4; vio2_fcs2=fcs1
+            ;;
         HEX-D8:6)
+            # lsnports GD6: VIO3/VIO4
             sys=Server-9080-HEX-SN78C65D8
             vio1_dst=P10B_SRV1VIO3; id1=3; vio1_fcs1=fcs2; vio1_fcs2=fcs7
             vio2_dst=P10B_SRV1VIO4; id2=4; vio2_fcs1=fcs2; vio2_fcs2=fcs7
             ;;
 
         HEX-C8:1)
+            # lsnports GD1: VIO1/VIO2 regular
+            sys=Server-9080-HEX-SN78C65C8
+            vio1_dst=P10B_SRV2VIO1; id1=1; vio1_fcs1=fcs0; vio1_fcs2=fcs5
+            vio2_dst=P10B_SRV2VIO2; id2=2; vio2_fcs1=fcs0; vio2_fcs2=fcs5
+            ;;
+        HEX-C8:1M)
+            # lsnports GD1_MON: VIO1_M/VIO2_M
             sys=Server-9080-HEX-SN78C65C8
             vio1_dst=P10B_SRV2VIO1_M; id1=5; vio1_fcs1=fcs0; vio1_fcs2=fcs3
             vio2_dst=P10B_SRV2VIO2_M; id2=6; vio2_fcs1=fcs0; vio2_fcs2=fcs3
             ;;
         HEX-C8:2)
+            # lsnports GD2: VIO1/VIO2 regular (GD2_82 = fcs11)
+            sys=Server-9080-HEX-SN78C65C8
+            vio1_dst=P10B_SRV2VIO1; id1=1; vio1_fcs1=fcs4; vio1_fcs2=fcs7
+            vio2_dst=P10B_SRV2VIO2; id2=2; vio2_fcs1=fcs4; vio2_fcs2=fcs11
+            ;;
+        HEX-C8:2M)
+            # lsnports GD2_MON: VIO1_M/VIO2_M
             sys=Server-9080-HEX-SN78C65C8
             vio1_dst=P10B_SRV2VIO1_M; id1=5; vio1_fcs1=fcs2; vio1_fcs2=fcs1
             vio2_dst=P10B_SRV2VIO2_M; id2=6; vio2_fcs1=fcs2; vio2_fcs2=fcs1
             ;;
         HEX-C8:3)
-            # From lsnports: GD3_70/72 on VIO1 (fcs6/fcs1), GD3_80/82 on VIO2 (fcs10/fcs1)
+            # lsnports GD3: VIO1 fcs6/fcs1, VIO2 fcs10/fcs1
             sys=Server-9080-HEX-SN78C65C8
             vio1_dst=P10B_SRV2VIO1; id1=1; vio1_fcs1=fcs6; vio1_fcs2=fcs1
             vio2_dst=P10B_SRV2VIO2; id2=2; vio2_fcs1=fcs10; vio2_fcs2=fcs1
             ;;
         HEX-C8:4)
+            # lsnports GD4: VIO3/VIO4
             sys=Server-9080-HEX-SN78C65C8
             vio1_dst=P10B_SRV2VIO3; id1=3; vio1_fcs1=fcs4; vio1_fcs2=fcs1
             vio2_dst=P10B_SRV2VIO4; id2=4; vio2_fcs1=fcs4; vio2_fcs2=fcs1
             ;;
+        HEX-C8:4M)
+            # lsnports GD4_MON: VIO3_M/VIO4_M
+            sys=Server-9080-HEX-SN78C65C8
+            vio1_dst=P10B_SRV2VIO3_M; id1=7; vio1_fcs1=fcs0; vio1_fcs2=fcs5
+            vio2_dst=P10B_SRV2VIO4_M; id2=8; vio2_fcs1=fcs0; vio2_fcs2=fcs5
+            ;;
         HEX-C8:5)
+            # lsnports GD5: VIO3/VIO4
             sys=Server-9080-HEX-SN78C65C8
             vio1_dst=P10B_SRV2VIO3; id1=3; vio1_fcs1=fcs0; vio1_fcs2=fcs5
             vio2_dst=P10B_SRV2VIO4; id2=4; vio2_fcs1=fcs0; vio2_fcs2=fcs5
             ;;
+        HEX-C8:5M)
+            # lsnports GD5_MON: VIO3_M/VIO4_M
+            sys=Server-9080-HEX-SN78C65C8
+            vio1_dst=P10B_SRV2VIO3_M; id1=7; vio1_fcs1=fcs4; vio1_fcs2=fcs1
+            vio2_dst=P10B_SRV2VIO4_M; id2=8; vio2_fcs1=fcs4; vio2_fcs2=fcs1
+            ;;
         HEX-C8:6)
+            # lsnports GD6: VIO3/VIO4
             sys=Server-9080-HEX-SN78C65C8
             vio1_dst=P10B_SRV2VIO3; id1=3; vio1_fcs1=fcs2; vio1_fcs2=fcs7
             vio2_dst=P10B_SRV2VIO4; id2=4; vio2_fcs1=fcs2; vio2_fcs2=fcs7
@@ -250,8 +316,12 @@ _eai_normalize_gd () {
         GD4|gd4|4) g=4 ;;
         GD5|gd5|5) g=5 ;;
         GD6|gd6|6) g=6 ;;
+        GD1_MON|gd1_mon|1_MON|1_mon|1M|1m) g=1M ;;
+        GD2_MON|gd2_mon|2_MON|2_mon|2M|2m) g=2M ;;
+        GD4_MON|gd4_mon|4_MON|4_mon|4M|4m) g=4M ;;
+        GD5_MON|gd5_mon|5_MON|5_mon|5M|5m) g=5M ;;
         *)
-            printf 'GD invalide: %s. Valeurs autorisees: GD1 a GD6.\n' "$1" >&2
+            printf 'GD invalide: %s. Valeurs: GD1..GD6, GD1_MON, GD2_MON, GD4_MON, GD5_MON.\n' "$1" >&2
             return 1
             ;;
     esac
@@ -326,11 +396,11 @@ _eai_lpar_id () {
 }
 
 _eai_usage_lpm () {
-    printf 'Usage: eai_lpm -n <LPAR> -g <1..6|GD1..GD6> -d <DESTINATION> [-t active|inactive] [-msp 1|2] [-id DEST_LPAR_ID]\n' >&2
+    printf 'Usage: eai_lpm -n <LPAR> -g <GD1..GD6|GD1_MON|GD2_MON|GD4_MON|GD5_MON> -d <DESTINATION> [-t active|inactive] [-msp 1|2] [-id DEST_LPAR_ID]\n' >&2
 }
 
 _eai_usage_srr () {
-    printf 'Usage: eai_srr -n <LPAR> -g <1..6|GD1..GD6> -d <DESTINATION>\n' >&2
+    printf 'Usage: eai_srr -n <LPAR> -g <GD1..GD6|GD1_MON|GD2_MON|GD4_MON|GD5_MON> -d <DESTINATION>\n' >&2
 }
 
 eai_lpm () {
