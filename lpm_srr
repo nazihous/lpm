@@ -47,9 +47,7 @@
 #   INACTIVE_LPM      : migrlpar without MSP options
 #   SIMPLE REMO REST  : rrstartlpar restart
 #
-# vFC client slots: 70/72/71 (VIO1) and 80/82/81 (VIO2).
-# Physical ports for 70/72/80/82 come from GD maps; 71/81 omit pfcs
-# when no dedicated GD port is defined (HMC may auto-select).
+# Only vFC client slots 70/72/80/82 are generated.
 
 _eai_normalize_destination () {
     case "$1" in
@@ -132,9 +130,6 @@ _eai_set_source_msp () {
 }
 
 _eai_set_destination_mapping () {
-    # Optional third pfcs (slots 71/81) left unset unless a dedicated GD port exists.
-    vio1_fcs3=; vio2_fcs3=
-
     case "$dst:$g" in
         M9S-A08:1)
             sys=Server-9080-M9S-SN7841A08
@@ -390,22 +385,20 @@ _eai_vfc_elem () {
     fi
 }
 
-# Order matches runbook: 70,72,71,80,82,81
+# Slots 70/72 on VIO1, 80/82 on VIO2
 _eai_build_vfc_mappings () {
-    cslot_70=70; cslot_72=72; cslot_71=71
-    cslot_80=80; cslot_82=82; cslot_81=81
-    vslot_70=1$M$id$N; vslot_72=2$M$id$N; vslot_71=3$M$id$N
-    vslot_80=1$M$id$N; vslot_82=2$M$id$N; vslot_81=3$M$id$N
-    pfcs70=$vio1_fcs1; pfcs72=$vio1_fcs2; pfcs71=$vio1_fcs3
-    pfcs80=$vio2_fcs1; pfcs82=$vio2_fcs2; pfcs81=$vio2_fcs3
+    cslot_70=70; cslot_72=72
+    cslot_80=80; cslot_82=82
+    vslot_70=1$M$id$N; vslot_72=2$M$id$N
+    vslot_80=1$M$id$N; vslot_82=2$M$id$N
+    pfcs70=$vio1_fcs1; pfcs72=$vio1_fcs2
+    pfcs80=$vio2_fcs1; pfcs82=$vio2_fcs2
 
     e70=`_eai_vfc_elem "$cslot_70" "$vio1_dst" "$id1" "$vslot_70" "$pfcs70"`
     e72=`_eai_vfc_elem "$cslot_72" "$vio1_dst" "$id1" "$vslot_72" "$pfcs72"`
-    e71=`_eai_vfc_elem "$cslot_71" "$vio1_dst" "$id1" "$vslot_71" "$pfcs71"`
     e80=`_eai_vfc_elem "$cslot_80" "$vio2_dst" "$id2" "$vslot_80" "$pfcs80"`
     e82=`_eai_vfc_elem "$cslot_82" "$vio2_dst" "$id2" "$vslot_82" "$pfcs82"`
-    e81=`_eai_vfc_elem "$cslot_81" "$vio2_dst" "$id2" "$vslot_81" "$pfcs81"`
-    printf '%s,%s,%s,%s,%s,%s' "$e70" "$e72" "$e71" "$e80" "$e82" "$e81"
+    printf '%s,%s,%s,%s' "$e70" "$e72" "$e80" "$e82"
 }
 
 _eai_trim () {
