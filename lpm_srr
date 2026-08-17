@@ -10,8 +10,8 @@
 #   (no GD3_MON / GD6_MON in lsnports)
 #
 # Usage:
-#   eai_lpm -t <active|inactive> -msp <1|2> -n <LPAR> -g <GD> -d <DESTINATION> [-id DEST_LPAR_ID] [-vs DEST_VSWITCH -vid VLAN_ID] [-svs SRC_VSWITCH]
-#   eai_srr -n <LPAR> -g <GD> -d <DESTINATION> [-vs DEST_VSWITCH -vid VLAN_ID] [-svs SRC_VSWITCH]
+#   eai_lpm -t <active|inactive> -msp <1|2> -n <LPAR> -g <GD> -d <DESTINATION> [-id DEST_LPAR_ID] [-vs DEST_VSWITCH [-vid VLAN_ID]] [-svs SRC_VSWITCH]
+#   eai_srr -n <LPAR> -g <GD> -d <DESTINATION> [-vs DEST_VSWITCH [-vid VLAN_ID]] [-svs SRC_VSWITCH]
 #
 # Options (LPM):
 #   -n   LPAR name (mandatory)
@@ -20,17 +20,23 @@
 #   -id  Destination LPAR ID (optional; default = source LPAR ID)
 #   -msp 1 = single MSP (default), 2 = redundant MSPs (active LPM only)
 #   -t   active | inactive (optional; if omitted: Running -> active, else inactive)
-#   -vs  Destination/new vswitch (optional; requires -vid)
-#   -vid VLAN ID to remap onto -vs (optional; requires -vs; comma-separated OK)
-#   -svs Source vswitch (optional; default ETHERNET0; used with -vs/-vid)
+#   -vs  Destination/new vswitch (optional). Without -vid, all LPAR VLANs are remapped.
+#   -vid VLAN ID to remap onto -vs (optional; comma-separated OK; requires -vs)
+#   -svs Source vswitch (optional). With -vid: default ETHERNET0. With -vs only: filter
+#        discovered VLANs to this vswitch (otherwise each adapter's vswitch is used).
 #
 # migrlpar vswitch_mappings format (from migrlpar_usage.txt):
 #   vlan_id/source_vswitch_name/dest_vswitch_name
+#
+# VLAN auto-discovery (when -vs is set without -vid) uses:
+#   lshwres -m <SRC_FRAME> -r virtualio --rsubtype eth --level lpar \
+#           --filter "lpar_names=<LPAR>" -F vswitch,port_vlan_id,addl_vlan_ids
 #
 # Examples:
 #   eai_lpm -n P10B_TEST12 -g GD4 -d HEX-C8
 #   eai_lpm -t active -msp 2 -n P10B_TEST12 -g GD1_MON -d HEX-C8 -id 12
 #   eai_lpm -t inactive -n P10B_TEST12 -g GD4 -d HEX-C8
+#   eai_lpm -n P10B_TEST12 -g GD4 -d HEX-C8 -vs VS_PROD
 #   eai_lpm -n P10B_TEST12 -g GD4 -d HEX-C8 -vs VS_PROD -vid 100
 #   eai_srr -n P10B_TEST12 -g GD4 -d HEX-C8
 #   eai_srr -n P10B_TEST12 -g GD4 -d HEX-C8 -vs VS_PROD -vid 100,200
@@ -402,9 +408,108 @@ _eai_build_vfc_mappings () {
     printf '%s,%s,%s,%s,%s,%s' "$e70" "$e72" "$e71" "$e80" "$e82" "$e81"
 }
 
+_eai_trim () {
+    _t=$1
+    _t=${_t#"${_t%%[![:space:]]*}"}
+    _t=${_t%"${_t##*[![:space:]]}"}
+    printf '%s' "$_t"
+}
+
+# Unique vlan_id/source_vswitch pairs from the LPAR's virtual ethernet adapters.
+# Args: lpar managed_system [source_vswitch_filter]
+# Prints: vid/src_vs,vid/src_vs,...
+_eai_lpar_vlan_pairs () {
+    _dlpar=$1
+    _dframe=$2
+    _dsvs=$3
+    _pairs=
+    _seen=
+
+    _hw=`lshwres -m "$_dframe" -r virtualio --rsubtype eth --level lpar --filter "lpar_names=$_dlpar" -F vswitch,port_vlan_id,addl_vlan_ids` || {
+        printf 'Impossible de lire les VLAN du LPAR %s.\n' "$_dlpar" >&2
+        return 1
+    }
+
+    if [ -z "$_hw" ]; then
+        printf 'Aucun VLAN trouve pour le LPAR %s.\n' "$_dlpar" >&2
+        return 1
+    fi
+
+    while IFS= read -r _line || [ -n "$_line" ]; do
+        _line=${_line%$'\r'}
+        _line=`_eai_trim "$_line"`
+        [ -z "$_line" ] && continue
+
+        _line_svs=${_line%%,*}
+        _rest=${_line#*,}
+        if [ "$_rest" = "$_line" ]; then
+            continue
+        fi
+        _line_svs=`_eai_trim "$_line_svs"`
+        case "$_line_svs" in
+            ''|*/*|*,*)
+                continue
+                ;;
+        esac
+
+        if [ -n "$_dsvs" ] && [ "$_line_svs" != "$_dsvs" ]; then
+            continue
+        fi
+
+        while [ -n "$_rest" ]; do
+            case "$_rest" in
+                *,*)
+                    _vid=${_rest%%,*}
+                    _rest=${_rest#*,}
+                    ;;
+                *)
+                    _vid=$_rest
+                    _rest=
+                    ;;
+            esac
+            _vid=`_eai_trim "$_vid"`
+            _vid=${_vid#\"}
+            _vid=${_vid%\"}
+            case "$_vid" in
+                ''|none|NONE|null) continue ;;
+                *[!0-9]*) continue ;;
+            esac
+            if [ "$_vid" -lt 1 ] || [ "$_vid" -gt 4094 ]; then
+                continue
+            fi
+
+            _key="$_line_svs/$_vid"
+            case ",$_seen," in
+                *",$_key,"*) continue ;;
+            esac
+            _seen="${_seen:+$_seen,}$_key"
+            if [ -z "$_pairs" ]; then
+                _pairs="$_vid/$_line_svs"
+            else
+                _pairs="$_pairs,$_vid/$_line_svs"
+            fi
+        done
+    done <<EOF
+$_hw
+EOF
+
+    if [ -z "$_pairs" ]; then
+        if [ -n "$_dsvs" ]; then
+            printf 'Aucun VLAN trouve pour le LPAR %s sur le vswitch %s.\n' "$_dlpar" "$_dsvs" >&2
+        else
+            printf 'Aucun VLAN trouve pour le LPAR %s.\n' "$_dlpar" >&2
+        fi
+        return 1
+    fi
+
+    printf '%s\n' "$_pairs"
+}
+
 # Build optional -i fragment: ,vswitch_mappings="vid/src_vs/dst_vs[,...]"
 # Args: dest_vswitch vlan_ids [source_vswitch]
-# vlan_ids: single ID or comma-separated list. Source defaults to ETHERNET0.
+# If dest_vswitch is set and vlan_ids is empty, discover all LPAR VLANs
+# (uses $lpar and $src from _eai_prepare_mapping). Source defaults to
+# ETHERNET0 only when -vid is given without -svs.
 _eai_build_vswitch_i_attr () {
     _vs=$1
     _vids=$2
@@ -415,8 +520,8 @@ _eai_build_vswitch_i_attr () {
         return 0
     fi
 
-    if [ -z "$_vs" ] || [ -z "$_vids" ]; then
-        printf 'Les options -vs et -vid doivent etre utilisees ensemble.\n' >&2
+    if [ -z "$_vs" ]; then
+        printf 'L option -vs est requise pour mapper les VLAN vers un vswitch destination.\n' >&2
         return 1
     fi
 
@@ -427,53 +532,85 @@ _eai_build_vswitch_i_attr () {
             ;;
     esac
 
-    if [ -z "$_svs" ]; then
-        _svs=ETHERNET0
-    fi
-    case "$_svs" in
-        */*|*,*)
-            printf 'Nom de vswitch source invalide: %s\n' "$_svs" >&2
-            return 1
-            ;;
-    esac
-
-    _map=
-    _rest=$_vids
-    while [ -n "$_rest" ]; do
-        case "$_rest" in
-            *,*)
-                _vid=${_rest%%,*}
-                _rest=${_rest#*,}
-                ;;
-            *)
-                _vid=$_rest
-                _rest=
-                ;;
-        esac
-        _vid=${_vid#"${_vid%%[![:space:]]*}"}
-        _vid=${_vid%"${_vid##*[![:space:]]}"}
-        case "$_vid" in
-            ''|*[!0-9]*)
-                printf 'VLAN ID invalide: %s. Une valeur numerique (1-4094) est attendue.\n' "$_vid" >&2
+    if [ -n "$_svs" ]; then
+        case "$_svs" in
+            */*|*,*)
+                printf 'Nom de vswitch source invalide: %s\n' "$_svs" >&2
                 return 1
                 ;;
         esac
-        if [ "$_vid" -lt 1 ] || [ "$_vid" -gt 4094 ]; then
-            printf 'VLAN ID hors plage: %s (attendu: 1-4094).\n' "$_vid" >&2
+    fi
+
+    _pair_spec=
+    if [ -z "$_vids" ]; then
+        if [ -z "$lpar" ] || [ -z "$src" ]; then
+            printf 'Impossible de decouvrir les VLAN: LPAR ou frame source manquant.\n' >&2
             return 1
         fi
-        _elem="$M$_vid$N/$C$_svs$N/$G$_vs$N"
+        _pair_spec=`_eai_lpar_vlan_pairs "$lpar" "$src" "$_svs"` || return 1
+    else
+        if [ -z "$_svs" ]; then
+            _svs=ETHERNET0
+        fi
+        _rest=$_vids
+        while [ -n "$_rest" ]; do
+            case "$_rest" in
+                *,*)
+                    _vid=${_rest%%,*}
+                    _rest=${_rest#*,}
+                    ;;
+                *)
+                    _vid=$_rest
+                    _rest=
+                    ;;
+            esac
+            _vid=`_eai_trim "$_vid"`
+            case "$_vid" in
+                ''|*[!0-9]*)
+                    printf 'VLAN ID invalide: %s. Une valeur numerique (1-4094) est attendue.\n' "$_vid" >&2
+                    return 1
+                    ;;
+            esac
+            if [ "$_vid" -lt 1 ] || [ "$_vid" -gt 4094 ]; then
+                printf 'VLAN ID hors plage: %s (attendu: 1-4094).\n' "$_vid" >&2
+                return 1
+            fi
+            _elem="$_vid/$_svs"
+            if [ -z "$_pair_spec" ]; then
+                _pair_spec=$_elem
+            else
+                _pair_spec="$_pair_spec,$_elem"
+            fi
+        done
+
+        if [ -z "$_pair_spec" ]; then
+            printf 'VLAN ID invalide: %s. Une valeur numerique (1-4094) est attendue.\n' "$_vids" >&2
+            return 1
+        fi
+    fi
+
+    _map=
+    _rest=$_pair_spec
+    while [ -n "$_rest" ]; do
+        case "$_rest" in
+            *,*)
+                _pair=${_rest%%,*}
+                _rest=${_rest#*,}
+                ;;
+            *)
+                _pair=$_rest
+                _rest=
+                ;;
+        esac
+        _vid=${_pair%%/*}
+        _psvs=${_pair#*/}
+        _elem="$M$_vid$N/$C$_psvs$N/$G$_vs$N"
         if [ -z "$_map" ]; then
             _map=$_elem
         else
             _map="$_map,$_elem"
         fi
     done
-
-    if [ -z "$_map" ]; then
-        printf 'VLAN ID invalide: %s. Une valeur numerique (1-4094) est attendue.\n' "$_vids" >&2
-        return 1
-    fi
 
     vsw_i=",vswitch_mappings=\"$_map\""
 }
@@ -487,11 +624,11 @@ _eai_lpar_id () {
 }
 
 _eai_usage_lpm () {
-    printf 'Usage: eai_lpm -n <LPAR> -g <GD1..GD6|GD1_MON|GD2_MON|GD4_MON|GD5_MON> -d <DESTINATION> [-t active|inactive] [-msp 1|2] [-id DEST_LPAR_ID] [-vs DEST_VSWITCH -vid VLAN_ID[,VLAN_ID...]] [-svs SRC_VSWITCH]\n' >&2
+    printf 'Usage: eai_lpm -n <LPAR> -g <GD1..GD6|GD1_MON|GD2_MON|GD4_MON|GD5_MON> -d <DESTINATION> [-t active|inactive] [-msp 1|2] [-id DEST_LPAR_ID] [-vs DEST_VSWITCH [-vid VLAN_ID[,VLAN_ID...]]] [-svs SRC_VSWITCH]\n' >&2
 }
 
 _eai_usage_srr () {
-    printf 'Usage: eai_srr -n <LPAR> -g <GD1..GD6|GD1_MON|GD2_MON|GD4_MON|GD5_MON> -d <DESTINATION> [-vs DEST_VSWITCH -vid VLAN_ID[,VLAN_ID...]] [-svs SRC_VSWITCH]\n' >&2
+    printf 'Usage: eai_srr -n <LPAR> -g <GD1..GD6|GD1_MON|GD2_MON|GD4_MON|GD5_MON> -d <DESTINATION> [-vs DEST_VSWITCH [-vid VLAN_ID[,VLAN_ID...]]] [-svs SRC_VSWITCH]\n' >&2
 }
 
 eai_lpm () {
