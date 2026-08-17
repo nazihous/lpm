@@ -1,0 +1,247 @@
+hsuproot@HMC1P10BSK:~> migrlpar
+Usage: migrlpar -o m | r | s | set | v
+                [-m <managed system>]
+                [-t <managed system>]
+                [--ip <IP address>]
+                [-u <user ID>]
+                [-p <partition name> | --id <partition ID> | --all]
+                [--redundantvios 0 | 1 | 2]
+                [--mpio 1 | 2]
+                [--vlanbridge 1 | 2]
+                [--vsi 1 | 2]
+                [--npivval port | portdisk]
+                [--uuid 1 | 2]
+                [--protectstorage 1 | 2]
+                [--requirerr 1 | 2]
+                [--redundantmsps 0 | 1 | 2]
+                [--redundantsriovadapters 1 | 2]
+                [--redundantvnicbkdev 1 | 2]
+                [--migsriov 1 | 2]
+                [--sriovlogportcfg 1 | 2]
+                [--vniccfg 1 | 2]
+                [--affinity]
+                [--usecurrdata]
+                [--viosfcportlabel 1 | 2]
+                [--viosmsplabel 1 | 2]
+                [--viosstoragelabel 1 | 2]
+                [--viosvniclabel 1 | 2]
+                [-n <profile name>]
+                [-f <input data file> | -i "<input data>"]
+                [-r sys | lpar]
+                [-w <wait time>]
+                [-d <detail level>]
+                [--force]
+                [--steps]
+                [-v]
+                [--nodetails]
+                [--help]
+
+Performs partition migration operations.
+
+    -o                   - the operation to perform:
+                             m   - validate and migrate
+                             r   - recover
+                             s   - stop
+                             set - set
+                             v   - validate only
+    -m <managed system>  - the source managed system's name
+    -t <managed system>  - the target managed system's name
+    --ip <IP address>    - the IP address or host name of the target managed
+                           system's management console
+    -u <user ID>         - the user ID to use on the target managed system's
+                           management console
+    -p <partition name>  - the name of the partition on which to perform the
+                           operation
+    --id <partition ID>  - the ID of the partition on which to perform the
+                           operation
+    --all                - perform the operation on all AIX, Linux, and IBM i
+                           partitions
+    --redundantvios      - specifies whether the partition is to be configured
+                           to use redundant VIOS partitions for accessing its
+                           paging or reserved storage device:
+                             0 - no
+                             1 - yes
+                             2 - if possible
+    --mpio               - specifies whether the management console is required
+                           to maintain an equivalent multipath I/O
+                           configuration of the partition's virtual SCSI and
+                           virtual fibre channel adapters:
+                             1 - yes
+                             2 - if possible
+    --vlanbridge         - specifies whether each of the partition's virtual
+                           ethernet adapters is required to be configured so
+                           that it is bridged on the same VLAN to an external
+                           network:
+                             1 - yes
+                             2 - if possible
+    --vsi                - specifies whether the partition's virtual ethernet
+                           adapter VSI profiles are required to be configured
+                           on the target system:
+                             1 - yes
+                             2 - if possible
+    --npivval            - specifies the type of validation to be performed for
+                           NPIV devices:
+                             port     - port validation only
+                             portdisk - port and disk validation
+    --uuid               - specifies whether the partition's UUID is required
+                           to be migrated:
+                             1 - yes
+                             2 - if possible
+    --protectstorage     - specifies whether a suspended partition's virtual
+                           storage devices are required to be protected:
+                             1 - yes
+                             2 - no
+    --requirerr          - specifies whether the partition is required to be
+                           capable of simplified remote restart after it has
+                           been migrated:
+                             1 - yes
+                             2 - if possible
+    --redundantmsps      - specifies whether redundant mover service partitions
+                           are to be used:
+                             0 - no
+                             1 - yes
+                             2 - if possible
+    --redundantsriovadapters - specifies whether the partition's SR-IOV adapter
+                           redundancy is required to be maintained:
+                             1 - yes
+                             2 - if possible
+    --redundantvnicbkdev - specifies whether the partition's virtual NIC backing
+                           device redundancy is required to be maintained:
+                             1 - yes
+                             2 - if possible
+    --migsriov           - specifies whether the partition's migratable SR-IOV
+                           logical ports are required to be recreated:
+                             1 - yes
+                             2 - if possible
+    --sriovlogportcfg    - specifies whether the partition's SR-IOV logical
+                           port configuration is required to be maintained:
+                             1 - yes
+                             2 - if possible
+    --vniccfg            - specifies whether the partition's virtual NIC
+                           configuration is required to be maintained:
+                             1 - yes
+                             2 - if possible
+    --affinity           - specifies that the partition's affinity score is
+                           required to be maintained
+    --usecurrdata        - proceed with the migration when the source storage
+                           adapter data is stale
+   --viosfcportlabel     - specifies whether VIOS FC port group labels are to
+                           be used:
+                             1 - yes
+                             2 - if possible
+    --viosmsplabel       - specifies whether VIOS MSP group labels are to be
+                           used:
+                             1 - yes
+                             2 - if possible
+    --viosstoragelabel   - specifies whether VIOS storage group labels are to
+                           be used:
+                             1 - yes
+                             2 - if possible
+    --viosvniclabel      - specifies whether VIOS virtual NIC group labels are
+                           to be used:
+                             1 - yes
+                             2 - if possible
+    -n <profile name>    - the name of the partition profile to be created
+    -f <input data file> - the name of the file containing the input data for
+                           this command.  The format is:
+                             attr_name1=value,attr_name2=value,...
+                           or
+                             "attr_name1=value1,value2,...",...
+    -i "<input data>"    - the input data for this command.  The format is:
+                             "attr_name1=value,attr_name2=value,..."
+                           or
+                             ""attr_name1=value1,value2,...",..."
+    -r                   - the type of resource for which to set migration
+                           attributes:
+                             sys  - managed system
+                             lpar - mover service partition
+    -w <wait time>       - the maximum time, in minutes, to wait for operating
+                           system commands issued by the management console to
+                           the partition to be migrated to complete
+    -d <detail level>    - the level of detail requested from operating system
+                           commands issued by the management console to all
+                           partitions participating in the migration - values
+                           range from 0 (none) to 5 (highest)
+    --force              - force the recover operation
+    --steps              - specifies whether to display step results:
+                             0 - no
+                             1 - display all step results
+                             2 - display only failed step results
+    -v                   - enable verbose mode
+    --nodetails          - do not display detail messages
+    --help               - prints this help
+
+The valid attribute names for this command are:
+    -o m, v : virtual_fc_mappings
+                   (slot_num/vios_lpar_name/vios_lpar_id[/[vios_slot_num][/
+                   [vios_fc_port_name]]]),
+              multiple_virtual_fc_mappings
+                   (lpar_name/lpar_id/slot_num/vios_lpar_name/vios_lpar_id/
+                   vios_slot_num/vios_fc_port_name),
+              virtual_scsi_mappings
+                   (slot_num/vios_lpar_name/vios_lpar_id[/vios_slot_num]),
+              multiple_virtual_scsi_mappings
+                   (lpar_name/lpar_id/slot_num/vios_lpar_name/vios_lpar_id/
+                   vios_slot_num),
+              vnic_mappings
+                   (slot_num/ded/[vios_lpar_name]/[vios_lpar_id]/
+                   [adapter_id]/[physical_port_id]/[capacity][/
+                   [source_adapter_id]/[source_physical_port_id]
+                   [/[max_capacity]]]),
+              multiple_vnic_mappings
+                   (lpar_name/lpar_id/slot_num/ded/[vios_lpar_name]/
+                   [vios_lpar_id]/[adapter_id]/[physical_port_id]/[capacity][/
+                   [source_adapter_id]/[source_physical_port_id]
+                   [/[max_capacity]]]),
+              sriov_logical_port_mappings
+                   (sriov_logical_port_id/[adapter_id]/[physical_port_id]/
+                   [capacity]/[max_capacity]),
+              multiple_sriov_logical_port_mappings
+                   (lpar_name/lpar_id/sriov_logical_port_id/[adapter_id]/
+                   [physical_port_id]/[capacity]/[max_capacity]),
+              source_msp_name, source_msp_id, dest_msp_name, dest_msp_id,
+              source_msp_ipaddr, dest_msp_ipaddr,
+              source_msps (source_msp_name/source_msp_id/source_msp_ipaddr),
+              dest_msps (dest_msp_name/dest_msp_id/dest_msp_ipaddr),
+              redundant_msps
+                   (group_id/[source_msp_name]/[source_msp_id]/
+                   [source_msp_ipaddr]/[dest_msp_name]/[dest_msp_id]/
+                   [dest_msp_ipaddr]),
+              msp_labels,
+              shared_proc_pool_name | shared_proc_pool_id,
+              multiple_shared_proc_pool_names
+                   (lpar_name/lpar_id/shared_proc_pool_name),
+              multiple_shared_proc_pool_ids
+                   (lpar_name/lpar_id/shared_proc_pool_id),
+              primary_rs_vios_name | primary_rs_vios_id,
+              multiple_primary_rs_vios_names
+                   (lpar_name/lpar_id/primary_rs_vios_name),
+              multiple_primary_rs_vios_ids
+                   (lpar_name/lpar_id/primary_rs_vios_id),
+              dest_lpar_id,
+              multiple_dest_lpar_ids (lpar_name/lpar_id/dest_lpar_id),
+              multiple_profile_names (lpar_name/lpar_id/profile_name),
+              concurr_migration_perf_level,
+              multiple_concurr_migration_perf_levels
+                   (lpar_name/lpar_id/concurr_migration_perf_level),
+              vswitch_mappings
+                   (vlan_id/source_vswitch_name/dest_vswitch_name),
+              multiple_vswitch_mappings
+                   (lpar_name/lpar_id/vlan_id/source_vswitch_name/
+                   dest_vswitch_name),
+              inactive_prof_policy (prof | config),
+              multiple_inactive_prof_policies
+                   (lpar_name/lpar_id/inactive_prof_policy),
+              affinity_group_id,
+              multiple_affinity_group_ids
+                   (lpar_name/lpar_id/affinity_group_id),
+              pmem_volumes
+                   (source_pmem_volume_name/dest_pmem_volume_name),
+              multiple_pmem_volumes
+                   (lpar_name/lpar_id/source_pmem_volume_name/
+                   dest_pmem_volume_name)
+    -o set  : inactive_prof_policy (prof | config),
+              npiv_validation_policy (port | portdisk),
+              allow_inactive_source_storage_vios (0 | 1),
+              num_active_migrations_configured,
+              concurr_migration_perf_level
