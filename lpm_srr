@@ -10,7 +10,7 @@
 #   (no GD3_MON / GD6_MON in lsnports)
 #
 # Usage:
-#   eai_lpm -t <active|inactive> -msp <1|2> -n <LPAR> -g <GD> -d <DESTINATION> [-id DEST_LPAR_ID] [-vs DEST_VSWITCH [-vid VLAN_ID]] [-svs SRC_VSWITCH]
+#   eai_lpm -t <active|inactive> -msp <1|2> -n <LPAR> -g <GD> -d <DESTINATION> [-id DEST_LPAR_ID] [-vs DEST_VSWITCH [-vid VLAN_ID]] [-svs SRC_VSWITCH] [--remote]
 #   eai_srr -n <LPAR> -g <GD> -d <DESTINATION> [-vs DEST_VSWITCH [-vid VLAN_ID]] [-svs SRC_VSWITCH]
 #
 # Options (LPM):
@@ -24,6 +24,11 @@
 #   -vid VLAN ID to remap onto -vs (optional; comma-separated OK; requires -vs)
 #   -svs Source vswitch (optional). With -vid: default ETHERNET0. With -vs only: filter
 #        discovered VLANs to this vswitch (otherwise each adapter's vswitch is used).
+#   --remote  Remote LPM between HMCs (M9S <-> HEX). Adds:
+#             -u hscroot --ip <target_hmc_ip>
+#             M9S HMC: 172.30.2.60   HEX HMC: 172.30.2.70
+#             IBM: migrlpar -o m -m SRC -t DST -p LPAR -u USER --ip TARGET_HMC [migration options]
+#             Requires mkauthkeys on the source HMC beforehand.
 #
 # migrlpar vswitch_mappings format (from migrlpar_usage.txt):
 #   vlan_id/source_vswitch_name/dest_vswitch_name
@@ -38,6 +43,8 @@
 #   eai_lpm -t inactive -n P10B_TEST12 -g GD4 -d HEX-C8
 #   eai_lpm -n P10B_TEST12 -g GD4 -d HEX-C8 -vs VS_PROD
 #   eai_lpm -n P10B_TEST12 -g GD4 -d HEX-C8 -vs VS_PROD -vid 100
+#   eai_lpm -n P9B_TEST -g GD1 -d HEX-C8 --remote
+#   eai_lpm -n P10B_TEST12 -g GD4 -d M9S-A08 -t active --remote
 #   eai_srr -n P10B_TEST12 -g GD4 -d HEX-C8
 #   eai_srr -n P10B_TEST12 -g GD4 -d HEX-C8 -vs VS_PROD -vid 100,200
 #
@@ -45,6 +52,7 @@
 #   ACTLPM_SINGL_MSP  : migrlpar --redundantmsps 0 + source/dest MSP
 #   ACTLPM_REDUN_MSPS : migrlpar --redundantmsps 1 + redundant_msps
 #   INACTIVE_LPM      : migrlpar without MSP options
+#   REMOTE_LPM        : same as above plus -u hscroot --ip <target HMC>
 #   SIMPLE REMO REST  : rrstartlpar restart
 #
 # Only vFC client slots 70/72/80/82 are generated.
@@ -82,6 +90,41 @@ _eai_default_destination () {
             return 1
             ;;
     esac
+}
+
+# Remote LPM: target HMC user/IP (IBM migrlpar -u / --ip).
+# M9S frames are managed by 172.30.2.60, HEX frames by 172.30.2.70.
+_EAI_HMC_USER=hscroot
+_EAI_HMC_M9S=172.30.2.60
+_EAI_HMC_HEX=172.30.2.70
+
+_eai_hmc_ip () {
+    case "$1" in
+        Server-9080-M9S-SN7841A08|Server-9080-M9S-SN02609C8)
+            printf '%s' "$_EAI_HMC_M9S"
+            ;;
+        Server-9080-HEX-SN78C65D8|Server-9080-HEX-SN78C65C8)
+            printf '%s' "$_EAI_HMC_HEX"
+            ;;
+        *)
+            printf 'HMC inconnue pour le systeme: %s\n' "$1" >&2
+            return 1
+            ;;
+    esac
+}
+
+# Sets remote_frag to " -u hscroot --ip <target_hmc_ip>" when source and
+# destination are on different HMCs. Uses $src, $sys, and color vars.
+_eai_build_remote_frag () {
+    remote_frag=
+    _src_hmc=`_eai_hmc_ip "$src"` || return 1
+    _dst_hmc=`_eai_hmc_ip "$sys"` || return 1
+    if [ "$_src_hmc" = "$_dst_hmc" ]; then
+        printf 'Source et destination sont gerees par la meme HMC (%s). --remote s applique uniquement entre M9S (%s) et HEX (%s).\n' \
+            "$_src_hmc" "$_EAI_HMC_M9S" "$_EAI_HMC_HEX" >&2
+        return 1
+    fi
+    remote_frag=" -u $C$_EAI_HMC_USER$N --ip $G$_dst_hmc$N"
 }
 
 _eai_set_source_msp () {
@@ -617,7 +660,7 @@ _eai_lpar_id () {
 }
 
 _eai_usage_lpm () {
-    printf 'Usage: eai_lpm -n <LPAR> -g <GD1..GD6|GD1_MON|GD2_MON|GD4_MON|GD5_MON> -d <DESTINATION> [-t active|inactive] [-msp 1|2] [-id DEST_LPAR_ID] [-vs DEST_VSWITCH [-vid VLAN_ID[,VLAN_ID...]]] [-svs SRC_VSWITCH]\n' >&2
+    printf 'Usage: eai_lpm -n <LPAR> -g <GD1..GD6|GD1_MON|GD2_MON|GD4_MON|GD5_MON> -d <DESTINATION> [-t active|inactive] [-msp 1|2] [-id DEST_LPAR_ID] [-vs DEST_VSWITCH [-vid VLAN_ID[,VLAN_ID...]]] [-svs SRC_VSWITCH] [--remote]\n' >&2
 }
 
 _eai_usage_srr () {
@@ -627,7 +670,7 @@ _eai_usage_srr () {
 eai_lpm () {
     N=$'\e[0m'; RED=$'\e[1;31m'; Y=$'\e[1;33m'; G=$'\e[1;32m'; MAGENTA=$'\e[1;35m'; C=$'\e[1;36m'; M=$'\e[1;35m'
 
-    local lpar_opt= gd_opt= dst_opt= id_opt= msp_opt=1 type_opt= vs_opt= vid_opt= svs_opt=
+    local lpar_opt= gd_opt= dst_opt= id_opt= msp_opt=1 type_opt= vs_opt= vid_opt= svs_opt= remote_opt=
 
     # Backward-compatible positional: eai_lpm <LPAR> <GD> <DEST> [ID]
     if [ "$#" -gt 0 ] && [ "${1#-}" = "$1" ]; then
@@ -649,6 +692,7 @@ eai_lpm () {
                 -vs|--vs) vs_opt=$2; shift 2 ;;
                 -vid|--vid) vid_opt=$2; shift 2 ;;
                 -svs|--svs) svs_opt=$2; shift 2 ;;
+                --remote|-remote) remote_opt=1; shift ;;
                 -h|--help)
                     _eai_usage_lpm
                     return 0
@@ -709,19 +753,24 @@ eai_lpm () {
     vfc=`_eai_build_vfc_mappings`
     _eai_build_vswitch_i_attr "$vs_opt" "$vid_opt" "$svs_opt" || return 1
 
+    remote_frag=
+    if [ "$remote_opt" = 1 ]; then
+        _eai_build_remote_frag || return 1
+    fi
+
     if [ "$type_opt" = "inactive" ]; then
         # INACTIVE_LPM
-        printf '%s\n' "<migrlpar> -o m -m $C$src$N -t $G$sys$N -p $lpar -i 'dest_lpar_id=$M$id$N,virtual_fc_mappings=\"$vfc\"$vsw_i'"
+        printf '%s\n' "<migrlpar> -o m -m $C$src$N -t $G$sys$N -p $lpar$remote_frag -i 'dest_lpar_id=$M$id$N,virtual_fc_mappings=\"$vfc\"$vsw_i'"
         return 0
     fi
 
     # Active LPM
     if [ "$msp_opt" = "2" ]; then
         # ACTLPM_REDUN_MSPS
-        printf '%s\n' "<migrlpar> -o m -m $C$src$N -t $G$sys$N -p $lpar --redundantmsps 1 -i 'dest_lpar_id=$M$id$N,virtual_fc_mappings=\"$vfc\"$vsw_i,redundant_msps=\"1/$C$vio1_src$N///$G$vio1_dst$N//,1/$C$vio2_src$N///$G$vio2_dst$N//\"'"
+        printf '%s\n' "<migrlpar> -o m -m $C$src$N -t $G$sys$N -p $lpar$remote_frag --redundantmsps 1 -i 'dest_lpar_id=$M$id$N,virtual_fc_mappings=\"$vfc\"$vsw_i,redundant_msps=\"1/$C$vio1_src$N///$G$vio1_dst$N//,1/$C$vio2_src$N///$G$vio2_dst$N//\"'"
     else
         # ACTLPM_SINGL_MSP
-        printf '%s\n' "<migrlpar> -o m -m $C$src$N -t $G$sys$N -p $lpar --redundantmsps 0 -i 'dest_lpar_id=$M$id$N,virtual_fc_mappings=\"$vfc\"$vsw_i,source_msp_name=$C$vio1_src$N,dest_msp_name=$G$vio1_dst$N'"
+        printf '%s\n' "<migrlpar> -o m -m $C$src$N -t $G$sys$N -p $lpar$remote_frag --redundantmsps 0 -i 'dest_lpar_id=$M$id$N,virtual_fc_mappings=\"$vfc\"$vsw_i,source_msp_name=$C$vio1_src$N,dest_msp_name=$G$vio1_dst$N'"
     fi
 }
 
