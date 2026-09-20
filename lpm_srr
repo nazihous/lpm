@@ -1,14 +1,188 @@
-# Supports:
-#   P9  : Server-9080-M9S-SN7841A08 / Server-9080-M9S-SN02609C8
-#   P10 : Server-9080-HEX-SN78C65D8 / Server-9080-HEX-SN78C65C8
+# =============================================================================
+# eai_lpm / eai_srr  --  generate HMC LPM / SRR commands (print only, no exec)
+# =============================================================================
 #
-# P10 HEX vFC mappings are derived from lsnports.txt GD column:
+# Frames:
+#   alias     managed system                    HMC IP        VIOS prefix
+#   M9S-A08   Server-9080-M9S-SN7841A08         172.30.2.60   P9B_SRV1*
+#   M9S-C8    Server-9080-M9S-SN02609C8         172.30.2.60   P9B_SRV2*
+#   HEX-D8    Server-9080-HEX-SN78C65D8         172.30.2.70   P10B_SRV1*
+#   HEX-C8    Server-9080-HEX-SN78C65C8         172.30.2.70   P10B_SRV2*
+#
+# P10 HEX physical FC ports come from lsnports.txt LABEL/GD:
+#   LABEL = <GD>_<client_slot>   e.g. GD4_70, GD1_MON_82
 #   GD1..GD3        -> VIO1 / VIO2       (labels GD*_70/72/80/82)
 #   GD1_MON/GD2_MON -> VIO1_M / VIO2_M   (labels GD*_MON_*)
 #   GD4..GD6        -> VIO3 / VIO4
 #   GD4_MON/GD5_MON -> VIO3_M / VIO4_M
-#   (no GD3_MON / GD6_MON in lsnports)
+#   (no GD3_MON / GD6_MON in lsnports; M9S has no *_MON groups)
 #
+# -----------------------------------------------------------------------------
+# HOW IT WORKS (call trace)
+# -----------------------------------------------------------------------------
+#   1. Parse flags: -n LPAR  -g GD  -d DEST  [-id] [-t] [-msp] [-vs/-vid/-svs] [--remote]
+#   2. _eai_normalize_gd        GD4 -> g=4 ,  GD1_MON -> g=1M
+#   3. lparframelookup LPAR     -> src managed-system name
+#   4. _eai_normalize_destination  HEX-C8|78C65C8|... -> dst=HEX-C8
+#   5. _eai_set_destination_mapping  dst:g -> dest frame, 2 VIOS, 4 phys FCS, VIOS ids
+#   6. reject if src == dest frame
+#   7. _eai_set_source_msp       src:g -> source VIOS pair used as MSP (active LPM)
+#   8. dest LPAR id = -id, else lssyscfg lpar_id
+#   9. -t omitted: Running -> active, else inactive
+#  10. _eai_build_vfc_mappings   4 elements (slots 70/72/80/82 only)
+#  11. optional vswitch_mappings; optional --remote -u/--ip
+#  12. print migrlpar (LPM) or rrstartlpar (SRR)
+#
+# virtual_fc_mappings element (IBM):
+#   client_slot / dest_vios_name / dest_vios_id / dest_vios_slot / dest_phys_fcs
+#
+# Slot pairing (always the same; FCS names change per Frame+GD):
+#   client  dest VIOS     dest vios slot     phys FC
+#   70      vio1_dst      1{id}              vio1_fcs1     LABEL GD*_70
+#   72      vio1_dst      2{id}              vio1_fcs2     LABEL GD*_72
+#   80      vio2_dst      1{id}              vio2_fcs1     LABEL GD*_80
+#   82      vio2_dst      2{id}              vio2_fcs2     LABEL GD*_82
+#   dest vios slot 1{id}/2{id} means: LPAR id 12 -> 112 / 212
+#
+# Commands generated:
+#   ACTLPM_SINGL_MSP  : migrlpar --redundantmsps 0 + source_msp_name/dest_msp_name
+#   ACTLPM_REDUN_MSPS : migrlpar --redundantmsps 1 + redundant_msps
+#   INACTIVE_LPM      : migrlpar without MSP options
+#   REMOTE_LPM        : same as above plus -u hscroot --ip <target HMC>
+#   SIMPLE REMO REST  : rrstartlpar restart
+#
+# -----------------------------------------------------------------------------
+# TRACE TABLE  --  destination Frame / GD / VIOS / FCS
+# -----------------------------------------------------------------------------
+# Columns:
+#   DST     destination alias
+#   GD      groupe data (-g)
+#   VIO1    dest VIOS for client 70/72   (id1)
+#   FCS70   physical FC on VIO1 for slot 70
+#   FCS72   physical FC on VIO1 for slot 72
+#   VIO2    dest VIOS for client 80/82   (id2)
+#   FCS80   physical FC on VIO2 for slot 80
+#   FCS82   physical FC on VIO2 for slot 82
+#
+# --- M9S-A08  sys=Server-9080-M9S-SN7841A08 ---
+# DST     GD       VIO1 (id)          FCS70  FCS72   VIO2 (id)          FCS80  FCS82
+# M9S-A08 GD1      P9B_SRV1VIO1 (1)   fcs2   fcs9    P9B_SRV1VIO2 (2)   fcs4   fcs13
+# M9S-A08 GD2      P9B_SRV1VIO1 (1)   fcs4   fcs3    P9B_SRV1VIO2 (2)   fcs8   fcs5
+# M9S-A08 GD3      P9B_SRV1VIO1 (1)   fcs8   fcs5    P9B_SRV1VIO2 (2)   fcs12  fcs9
+# M9S-A08 GD4      P9B_SRV1VIO3 (3)   fcs0   fcs9    P9B_SRV1VIO4 (4)   fcs4   fcs13
+# M9S-A08 GD5      P9B_SRV1VIO3 (3)   fcs4   fcs1    P9B_SRV1VIO4 (4)   fcs8   fcs5
+# M9S-A08 GD6      P9B_SRV1VIO3 (3)   fcs8   fcs5    P9B_SRV1VIO4 (4)   fcs12  fcs9
+#
+# --- M9S-C8   sys=Server-9080-M9S-SN02609C8 ---
+# DST     GD       VIO1 (id)          FCS70  FCS72   VIO2 (id)          FCS80  FCS82
+# M9S-C8  GD1      P9B_SRV2VIO1 (1)   fcs0   fcs5    P9B_SRV2VIO2 (2)   fcs2   fcs7
+# M9S-C8  GD2      P9B_SRV2VIO1 (1)   fcs2   fcs1    P9B_SRV2VIO2 (2)   fcs4   fcs3
+# M9S-C8  GD3      P9B_SRV2VIO1 (1)   fcs4   fcs3    P9B_SRV2VIO2 (2)   fcs6   fcs5
+# M9S-C8  GD4      P9B_SRV2VIO3 (3)   fcs0   fcs5    P9B_SRV2VIO4 (4)   fcs2   fcs7
+# M9S-C8  GD5      P9B_SRV2VIO3 (3)   fcs2   fcs1    P9B_SRV2VIO4 (4)   fcs4   fcs3
+# M9S-C8  GD6      P9B_SRV2VIO3 (3)   fcs4   fcs3    P9B_SRV2VIO4 (4)   fcs6   fcs5
+#
+# --- HEX-D8   sys=Server-9080-HEX-SN78C65D8  (lsnports Serial HEX-78C65D8) ---
+# DST     GD       VIO1 (id)             FCS70  FCS72   VIO2 (id)             FCS80  FCS82
+# HEX-D8  GD1      P10B_SRV1VIO1 (1)     fcs1   fcs5    P10B_SRV1VIO2 (2)     fcs0   fcs5
+# HEX-D8  GD1_MON  P10B_SRV1VIO1_M (5)   fcs0   fcs3    P10B_SRV1VIO2_M (6)   fcs0   fcs3
+# HEX-D8  GD2      P10B_SRV1VIO1 (1)     fcs4   fcs7    P10B_SRV1VIO2 (2)     fcs4   fcs7
+# HEX-D8  GD2_MON  P10B_SRV1VIO1_M (5)   fcs2   fcs1    P10B_SRV1VIO2_M (6)   fcs2   fcs1
+# HEX-D8  GD3      P10B_SRV1VIO1 (1)     fcs6   fcs0    P10B_SRV1VIO2 (2)     fcs6   fcs1
+# HEX-D8  GD4      P10B_SRV1VIO3 (3)     fcs4   fcs1    P10B_SRV1VIO4 (4)     fcs4   fcs1
+# HEX-D8  GD4_MON  P10B_SRV1VIO3_M (7)   fcs0   fcs5    P10B_SRV1VIO4_M (8)   fcs0   fcs5
+# HEX-D8  GD5      P10B_SRV1VIO3 (3)     fcs0   fcs5    P10B_SRV1VIO4 (4)     fcs0   fcs5
+# HEX-D8  GD5_MON  P10B_SRV1VIO3_M (7)   fcs4   fcs1    P10B_SRV1VIO4_M (8)   fcs4   fcs1
+# HEX-D8  GD6      P10B_SRV1VIO3 (3)     fcs2   fcs7    P10B_SRV1VIO4 (4)     fcs2   fcs7
+#
+# --- HEX-C8   sys=Server-9080-HEX-SN78C65C8  (lsnports Serial HEX-78C65C8) ---
+# DST     GD       VIO1 (id)             FCS70  FCS72   VIO2 (id)             FCS80  FCS82
+# HEX-C8  GD1      P10B_SRV2VIO1 (1)     fcs0   fcs5    P10B_SRV2VIO2 (2)     fcs0   fcs5
+# HEX-C8  GD1_MON  P10B_SRV2VIO1_M (5)   fcs0   fcs3    P10B_SRV2VIO2_M (6)   fcs0   fcs3
+# HEX-C8  GD2      P10B_SRV2VIO1 (1)     fcs4   fcs7    P10B_SRV2VIO2 (2)     fcs4   fcs11
+# HEX-C8  GD2_MON  P10B_SRV2VIO1_M (5)   fcs2   fcs1    P10B_SRV2VIO2_M (6)   fcs2   fcs1
+# HEX-C8  GD3      P10B_SRV2VIO1 (1)     fcs6   fcs1    P10B_SRV2VIO2 (2)     fcs10  fcs1
+# HEX-C8  GD4      P10B_SRV2VIO3 (3)     fcs4   fcs1    P10B_SRV2VIO4 (4)     fcs4   fcs1
+# HEX-C8  GD4_MON  P10B_SRV2VIO3_M (7)   fcs0   fcs5    P10B_SRV2VIO4_M (8)   fcs0   fcs5
+# HEX-C8  GD5      P10B_SRV2VIO3 (3)     fcs0   fcs5    P10B_SRV2VIO4 (4)     fcs0   fcs5
+# HEX-C8  GD5_MON  P10B_SRV2VIO3_M (7)   fcs4   fcs1    P10B_SRV2VIO4_M (8)   fcs4   fcs1
+# HEX-C8  GD6      P10B_SRV2VIO3 (3)     fcs2   fcs7    P10B_SRV2VIO4 (4)     fcs2   fcs7
+#
+# -----------------------------------------------------------------------------
+# TRACE TABLE  --  source Frame / GD / MSP VIOS  (_eai_set_source_msp)
+# -----------------------------------------------------------------------------
+# SRC frame                         GD              vio1_src            vio2_src
+# Server-9080-M9S-SN7841A08         1 2 3           P9B_SRV1VIO1        P9B_SRV1VIO2
+# Server-9080-M9S-SN7841A08         4 5 6           P9B_SRV1VIO3        P9B_SRV1VIO4
+# Server-9080-M9S-SN02609C8         1 2 3           P9B_SRV2VIO1        P9B_SRV2VIO2
+# Server-9080-M9S-SN02609C8         4 5 6           P9B_SRV2VIO3        P9B_SRV2VIO4
+# Server-9080-HEX-SN78C65D8         1 2 3           P10B_SRV1VIO1       P10B_SRV1VIO2
+# Server-9080-HEX-SN78C65D8         1M 2M           P10B_SRV1VIO1_M     P10B_SRV1VIO2_M
+# Server-9080-HEX-SN78C65D8         4 5 6           P10B_SRV1VIO3       P10B_SRV1VIO4
+# Server-9080-HEX-SN78C65D8         4M 5M           P10B_SRV1VIO3_M     P10B_SRV1VIO4_M
+# Server-9080-HEX-SN78C65C8         1 2 3           P10B_SRV2VIO1       P10B_SRV2VIO2
+# Server-9080-HEX-SN78C65C8         1M 2M           P10B_SRV2VIO1_M     P10B_SRV2VIO2_M
+# Server-9080-HEX-SN78C65C8         4 5 6           P10B_SRV2VIO3       P10B_SRV2VIO4
+# Server-9080-HEX-SN78C65C8         4M 5M           P10B_SRV2VIO3_M     P10B_SRV2VIO4_M
+#
+# -----------------------------------------------------------------------------
+# WORKED EXAMPLES  (assume source HEX-D8, LPAR id=12 unless noted)
+# -----------------------------------------------------------------------------
+# Example A: eai_lpm -n P10B_TEST12 -g GD4 -d HEX-C8
+#   g=4  dst=HEX-C8  dest VIO3/VIO4  FCS 70/72=fcs4/fcs1  80/82=fcs4/fcs1
+#   source MSP (HEX-D8 GD4): P10B_SRV1VIO3 / P10B_SRV1VIO4
+#   virtual_fc_mappings=
+#     70/P10B_SRV2VIO3/3/112/fcs4,
+#     72/P10B_SRV2VIO3/3/212/fcs1,
+#     80/P10B_SRV2VIO4/4/112/fcs4,
+#     82/P10B_SRV2VIO4/4/212/fcs1
+#   -> ACTLPM_SINGL_MSP (default -msp 1, Running):
+#      migrlpar -o m -m Server-9080-HEX-SN78C65D8 -t Server-9080-HEX-SN78C65C8
+#               -p P10B_TEST12 --redundantmsps 0
+#               -i 'dest_lpar_id=12,virtual_fc_mappings="...",source_msp_name=P10B_SRV1VIO3,dest_msp_name=P10B_SRV2VIO3'
+#
+# Example B: eai_lpm -t active -msp 2 -n P10B_TEST12 -g GD1_MON -d HEX-C8 -id 12
+#   g=1M  dest VIO1_M(5)/VIO2_M(6)  FCS 70/72=fcs0/fcs3  80/82=fcs0/fcs3
+#   source MSP (HEX-D8 GD1_MON): P10B_SRV1VIO1_M / P10B_SRV1VIO2_M
+#   virtual_fc_mappings=
+#     70/P10B_SRV2VIO1_M/5/112/fcs0,
+#     72/P10B_SRV2VIO1_M/5/212/fcs3,
+#     80/P10B_SRV2VIO2_M/6/112/fcs0,
+#     82/P10B_SRV2VIO2_M/6/212/fcs3
+#   -> ACTLPM_REDUN_MSPS:
+#      ... --redundantmsps 1 -i '...,redundant_msps="1/P10B_SRV1VIO1_M///P10B_SRV2VIO1_M//,1/P10B_SRV1VIO2_M///P10B_SRV2VIO2_M//"'
+#
+# Example C: eai_lpm -t inactive -n P10B_TEST12 -g GD4 -d HEX-C8
+#   same vFC as A, no MSP flags
+#
+# Example D: eai_lpm -n P10B_TEST12 -g GD4 -d HEX-C8 -vs VS_PROD
+#   same vFC as A + vswitch_mappings auto-discovered from lshwres (all LPAR VLANs)
+#
+# Example E: eai_lpm -n P10B_TEST12 -g GD4 -d HEX-C8 -vs VS_PROD -vid 100
+#   + vswitch_mappings="100/ETHERNET0/VS_PROD"
+#
+# Example F: eai_lpm -n P9B_TEST -g GD1 -d HEX-C8 --remote
+#   source M9S (HMC 172.30.2.60) -> dest HEX (HMC 172.30.2.70)
+#   adds: -u hscroot --ip 172.30.2.70
+#   dest GD1 on HEX-C8: VIO1 fcs0/fcs5, VIO2 fcs0/fcs5
+#
+# Example G: eai_lpm -n P10B_TEST12 -g GD4 -d M9S-A08 -t active --remote
+#   source HEX -> dest M9S-A08 GD4: VIO3 fcs0/fcs9, VIO4 fcs4/fcs13
+#   adds: -u hscroot --ip 172.30.2.60
+#
+# Example H: eai_srr -n P10B_TEST12 -g GD4 -d HEX-C8
+#   same vFC as A, rrstartlpar -o restart ... shared_proc_pool_name=DefaultPool
+#
+# Example I: eai_srr -n P10B_TEST12 -g GD4 -d HEX-C8 -vs VS_PROD -vid 100,200
+#   + vswitch_mappings="100/ETHERNET0/VS_PROD,200/ETHERNET0/VS_PROD"
+#
+# Example J: HEX-C8 GD2 / GD3 (asymmetric FCS vs HEX-D8)
+#   HEX-C8 GD2: VIO1 fcs4/fcs7 , VIO2 fcs4/fcs11     (GD2_82 = fcs11)
+#   HEX-C8 GD3: VIO1 fcs6/fcs1 , VIO2 fcs10/fcs1     (GD3_80 = fcs10)
+#   HEX-D8 GD2: VIO1 fcs4/fcs7 , VIO2 fcs4/fcs7
+#   HEX-D8 GD3: VIO1 fcs6/fcs0 , VIO2 fcs6/fcs1
+#
+# -----------------------------------------------------------------------------
 # Usage:
 #   eai_lpm -t <active|inactive> -msp <1|2> -n <LPAR> -g <GD> -d <DESTINATION> [-id DEST_LPAR_ID] [-vs DEST_VSWITCH [-vid VLAN_ID]] [-svs SRC_VSWITCH] [--remote]
 #   eai_srr -n <LPAR> -g <GD> -d <DESTINATION> [-vs DEST_VSWITCH [-vid VLAN_ID]] [-svs SRC_VSWITCH]
@@ -47,13 +221,6 @@
 #   eai_lpm -n P10B_TEST12 -g GD4 -d M9S-A08 -t active --remote
 #   eai_srr -n P10B_TEST12 -g GD4 -d HEX-C8
 #   eai_srr -n P10B_TEST12 -g GD4 -d HEX-C8 -vs VS_PROD -vid 100,200
-#
-# Commands generated:
-#   ACTLPM_SINGL_MSP  : migrlpar --redundantmsps 0 + source/dest MSP
-#   ACTLPM_REDUN_MSPS : migrlpar --redundantmsps 1 + redundant_msps
-#   INACTIVE_LPM      : migrlpar without MSP options
-#   REMOTE_LPM        : same as above plus -u hscroot --ip <target HMC>
-#   SIMPLE REMO REST  : rrstartlpar restart
 #
 # Only vFC client slots 70/72/80/82 are generated.
 
